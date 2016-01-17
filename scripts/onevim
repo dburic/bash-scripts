@@ -1,0 +1,39 @@
+#!/bin/bash
+
+# Defaults
+VIM="/usr/bin/gvim"
+SERVERNAME="ONEVIM"
+
+showhelp() {
+    cat <<EOF
+onevim - use only one Vim instance for normal editing
+
+Usage:
+  onevim [FILES]
+
+Examples:
+  onevim file.txt
+  onevim *.txt
+
+EOF
+}
+
+# Is the server started?
+serverstarted() {
+    $VIM --serverlist | grep -q "^$SERVERNAME$"
+}
+
+case "$1" in 
+    -h|--help)
+        showhelp
+        exit 0;;
+esac
+
+if [ -z "$1" ]; then
+    if ! serverstarted; then
+        $VIM --servername $SERVERNAME
+    fi
+else
+    $VIM --servername $SERVERNAME --remote-silent "$@"
+fi
+
