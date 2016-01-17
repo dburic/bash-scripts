@@ -1,0 +1,80 @@
+# vim: ft=sh
+
+PREFIX=${PREFIX:-$HOME}
+
+SCRIPTS=$(ls "scripts")
+INCLUDES="head.sh"
+
+defaultTarget="prepare"
+
+
+# Prepare a single script for installation
+
+for f in $SCRIPTS; do 
+    mapTarget "$f" "prepare1"
+done
+
+test_prepare1() {
+    local f="$1"
+    old "bin/$f" -d "scripts/$f" $INCLUDES
+}
+
+cmd_prepare1() {
+    local f="$1"
+    [ -d "bin" ] || mkdir "bin"
+
+    # Replace lines starting with ##= file =## with the contents of file.sh
+    perl -ne 'if(m{^\#\#=\s+(\S+)\s+=\#\#\s*$}) { 
+        open(FH, "<", "$1.sh");
+        @lines = <FH>;
+        print @lines;
+    }
+    else {  
+        print;
+    }' "scripts/$f" >"bin/$f"
+
+    chmod +x "bin/$f"
+}
+
+
+# Prepare all scripts for installation
+
+dep_prepare() {
+    echo $SCRIPTS
+}
+
+cmd_prepare() {
+    : # Null command
+}
+
+
+# Install
+
+dep_install() {
+    echo "prepare"
+}
+
+cmd_install() {
+    local bindir="$PREFIX/bin"
+    local libdir="$PREFIX/lib/bash"
+    local d
+    local f
+    local b
+    for d in "$bindir" "$libdir"; do 
+        [ -d "$d" ] || mkdir -p "$d"
+    done
+    for f in "bin"/*; do
+        install -m 755 "$f" "$bindir"
+    done
+    for f in "lib/bash"/*; do
+        install -m 644 "$f" "$libdir"
+    done
+}
+
+
+# Clean 
+
+cmd_clean() {
+    rm -rf "bin"
+}
+
