@@ -1,20 +1,33 @@
 #!/bin/bash
 
-# Defaults
-VIM="/usr/bin/gvim"
-SERVERNAME="ONEVIM"
+##= head =##
 
+sourcelib "common"
+
+# Defaults
+CONSOLEVIM="/usr/bin/vim"
+GUIVIM="/usr/bin/gvim"
+[ -n "$DISPLAY" ] && VIM="$GUIVIM" || VIM="$CONSOLEVIM"
+SERVERNAME="ONEVIM"
+FILES="" # Cumulative list of files to edit
+
+# Show a nice help message
 showhelp() {
     cat <<EOF
-onevim - use only one Vim instance for normal editing
+onevim - edit files using only one Vim instance
 
 Usage:
-  onevim [FILES]
+  onevim [OPTIONS] [FILES]
+
+Options:
+  -l, --list F
+  -c, --console, --no-gui
 
 Examples:
   onevim file.txt
-  onevim *.txt
-
+  onevim *.php
+  onevim -l mylist
+  grep -r --include '*.php' -l 'function.*foo' | onevim
 EOF
 }
 
@@ -23,12 +36,75 @@ serverstarted() {
     $VIM --serverlist | grep -q "^$SERVERNAME$"
 }
 
-case "$1" in 
-    -h|--help)
-        showhelp
-        exit 0;;
-esac
+# Add a single file to the cumulative list
+addfile() {
+    local f="$1"
+    f=${f//\'/\'\\\'\'} # Replace ' with '\''
+    [ -z "$FILES" ] && FILES="'$f'" || FILES+=" '$f'"
+}
 
+# Add multiple files from list; leading and trailing whitespace is
+# stripped, empty lines and lines beginning with # are ignored
+addlist() {
+    local list="$1"
+    local f
+    while read -r f; do
+        case "$f" in
+            ""|"#"*)
+                continue;;
+        esac
+        addfile "$f"
+    done < <(perl -pe 's{^\s*}{}; s{\s*$}{\n};' "$list")
+}
+
+# Add multiple files passed as arguments
+addargs() {
+    for f in "$@"; do 
+        addfile "$f"
+    done
+}
+
+# Command line processing
+TEMP=$(getopt \
+        -l help,list:,console,no-gui\
+        -o hl:c \
+        -- "$@") || errorexit INVOPT
+eval set -- "$TEMP"
+
+while true; do
+    case "$1" in
+        -h|--help)
+            showhelp
+            exit 0;;
+        -l|--list)
+            if [ -f "$2" ]; then # Nonexistent files are just ignored
+                addlist "$2"
+            fi
+            shift 2;;
+        -c|--console|--no-gui)
+            VIM="$CONSOLEVIM"
+            shift;;
+        --)
+            shift
+            break;;
+        -*)
+            errorexit UNPROCOPT;;
+    esac
+done
+
+# Redirection or pipe?
+if [ ! -t 0 ]; then
+    addlist "-" # Add files from stdin
+    exec </dev/tty # Reattach stdin to controlling terminal; otherwise
+                   # Vim could give a warning that 'Input is not from a
+                   # terminal'
+fi
+
+# Add files from command line
+addargs "$@"
+
+# Here we go...
+eval set -- "$FILES"
 if [ -z "$1" ]; then
     if ! serverstarted; then
         $VIM --servername $SERVERNAME
