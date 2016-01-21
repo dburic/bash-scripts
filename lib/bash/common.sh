@@ -36,7 +36,7 @@ _errormsg() {
         CHILD)      msg="$1 exited with non-zero status";;
         EXISTS)     msg="$1 already exists";;
         NOTEXIST)   msg="$1 does not exist";;
-        NOTFILE)    msg="$1 is not a regular file";;
+        NOTFILE)    msg="$1 does not exist or is not a regular file";;
         NOTDIR)     msg="$1 is not a directory";;
         TEMPFILE)   msg="cannot create temporary file";;
         MKFILE)     msg="cannot create file $1";;
