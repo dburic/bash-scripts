@@ -1,0 +1,127 @@
+#!/bin/bash 
+
+##= head =##
+
+sourcelib "common"
+
+# Defaults
+CONFIGFILE="$CONFIGDIR/jump" # File with destinations and directories
+JUMPFILE="$HOME/.jump" # File with cd command
+MODE="jump" # What to do
+ALLOWEDMODES="jump show-config edit-config show-func" # What can be done
+
+# Show a nice help message
+showhelp() {
+    cat <<EOF
+jump - quickly jump to a predefined directory
+
+Usage:
+  jump [OPTIONS] [DESTINATION]
+
+Options:
+  -c, --config F        Specify config file
+  -s, --show-config     Show config file
+  -e, --edit-config     Edit config file
+  -f, --jump-function   Show jump function for .bashrc
+
+EOF
+}
+
+# Show config file
+showconfig() {
+    cat "$CONFIGFILE"
+}
+
+# Edit config file
+editconfig() {
+    local editor="${EDITOR:-editor}"
+    exec $editor "$CONFIGFILE"
+}
+
+# Show function that has to be added to .bashrc
+showfunc() {
+    cat <<EOF
+
+jump() { 
+    $REALPATH "\$@" && source "\$HOME/.jump"
+}
+alias j=jump
+
+EOF
+}
+
+# Get directory to jump to
+getdir() {
+    local dest="$1"
+    local line
+    if [ -n "$dest" ]; then
+        line=$(grep -v '^ *#' "$CONFIGFILE" | grep -m 1 "^$dest")
+        eval set -- "$line"
+        echo "$2"
+    else 
+        echo ""
+    fi
+}
+
+# Command line processing
+TEMP=$(getopt \
+        -l help,config:,show-config,edit-config,show-func \
+        -o hc:sef \
+        -- "$@") || errorexit INVOPT
+eval set -- "$TEMP"
+
+while true; do
+    case "$1" in
+        -h|--help)
+            showhelp
+            exit;;
+        -c|--config)
+            CONFIGFILE="$2"
+            shift 2;;
+        -s|--show-config)
+            MODE="show-config"
+            shift;;
+        -e|--edit-config)
+            MODE="edit-config"
+            shift;;
+        -f|--show-func)
+            MODE="show-func"
+            shift;;
+        --)
+            shift
+            break;;
+        -*)
+            errorexit UNPROCOPT;;
+    esac
+done
+
+# Check that mode is not something unexpected
+inlist "$MODE" $ALLOWEDMODES || errorexit OTHER "unknown mode, this should not happen"
+
+# Check that config file exists if mode requires so
+[ "$MODE" = "show-func" -o -f "$CONFIGFILE" ] || errorexit NOTFILE "$CONFIGFILE"
+
+# If mode is not jump, empty jump file and call appropriate function
+# (mode with hyphens removed)
+if [ "$MODE" != "jump" ]; then
+    > "$JUMPFILE"
+    ${MODE//-/}
+    exit
+fi
+
+# Get the directory to jump to
+DEST="$1"
+if [ -z "$DEST" ]; then 
+    DIR="$HOME"
+else
+    DIR=$(getdir "$DEST")
+fi
+
+# Store the actual cd command or exit with error
+if [ -n "$DIR" ]; then 
+    echo "$DIR"
+    echo "cd \"$DIR\"" > "$JUMPFILE"
+else
+    errorexit OTHER "unkown destination"
+fi
+
