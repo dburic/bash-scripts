@@ -2,7 +2,7 @@
 
 PREFIX=${PREFIX:-$HOME}
 
-SCRIPTS=$(ls "scripts")
+SCRIPTS=$(find scripts -type f)
 INCLUDES="head.sh"
 
 defaultTarget="prepare"
@@ -16,11 +16,13 @@ done
 
 test_prepare1() {
     local f="$1"
-    old "bin/$f" -d "scripts/$f" $INCLUDES
+    local g="${f##*/}"
+    old "bin/$g" -d "$f" $INCLUDES
 }
 
 cmd_prepare1() {
     local f="$1"
+    local g="${f##*/}"
     [ -d "bin" ] || mkdir "bin"
 
     # Replace lines starting with ##= file =## with the contents of file.sh
@@ -31,9 +33,9 @@ cmd_prepare1() {
     }
     else {  
         print;
-    }' "scripts/$f" >"bin/$f"
+    }' "$f" >"bin/$g"
 
-    chmod +x "bin/$f"
+    chmod +x "bin/$g"
 }
 
 
@@ -63,10 +65,10 @@ cmd_install() {
     for d in "$bindir" "$libdir"; do 
         [ -d "$d" ] || mkdir -p "$d"
     done
-    for f in "bin"/*; do
+    find bin -type f | while read f; do
         install -m 755 "$f" "$bindir"
     done
-    for f in "lib/bash"/*; do
+    find lib/bash -type f | while read f; do
         install -m 644 "$f" "$libdir"
     done
 }
