@@ -5,95 +5,112 @@
 sourcelib "common"
 
 # Defaults
-CONFIGFILE="$CONFIGDIR/jump.conf" # File with destinations and directories
-JUMPFILE="$HOME/.jump" # File with cd command
+CONFIGFILE="$CONFIGDIR/jump.conf" # File with bookmarks and directories
+BOOKMARKS=() # Config file bookmarks
+DIRS=() # Config file directories
+JUMPDIR="" # Final directory to jump to
+SAVEFILE="" # File where $JUMPDIR should be saved
 MODE="jump" # What to do
-ALLOWEDMODES="jump show-config edit-config show-func" # What can be done
+ALLOWEDMODES="jump view-config edit-config which-config" # What can be done
+GREP="grep -i -m 1" # How to call grep
+MATCHANYWHERE=0 # Match anywhere, not only at beginning
 
-# Show config file
-showconfig() {
+# Additional error messages
+adderrormsgs \
+    NOMODE 'unknown mode, this should not happen' \
+    NODEST 'unknown destination %s'
+
+# Add bookmark and directory
+addbookmarkdir() {
+    BOOKMARKS+=("$1") 
+    DIRS+=("$2")
+}
+
+# Read configuration file
+readconfig() {
+    local l
+    while read -r l || [ -n "$l" ]; do
+        case "$l" in 
+            "#"*|"")
+                continue;;
+        esac
+        eval -- "addbookmarkdir $l"
+    done < "$CONFIGFILE"
+}
+
+# View config file
+viewconfig() {
     cat "$CONFIGFILE"
 }
 
 # Edit config file
 editconfig() {
     local editor="${EDITOR:-editor}"
-    exec $editor "$CONFIGFILE"
+    $editor "$CONFIGFILE"
 }
 
-# Show function that has to be added to .bashrc
-showfunc() {
-    cat <<EOF
-
-jump() { 
-    $REALPATH "\$@" && source "\$HOME/.jump"
+# Show path of config file
+whichconfig() {
+    echo "$CONFIGFILE"
 }
-alias j=jump
 
-EOF
+# Return regex pattern for grep
+greppattern() {
+    local pat=""
+    [ $MATCHANYWHERE -eq 0 ] && pat="^$1" || pat="$1"
+    echo "$pat"
+}
+
+# Get directory from bookmarks
+getfrombookmarks() {
+    local dest="$1"
+    readconfig
+    local pat=$(greppattern "$dest")
+    local k=$(printf '%s\n' "${BOOKMARKS[@]}" | $GREP -n "$pat" | cut -d: -f1)
+    [ -z "$k" ] && return # No match
+    (( k-- ))
+    echo "${DIRS[$k]}"
 }
 
 # Get subdirectory of given directory
 getsubdir() {
-    local dest="$1"
-    [ -n "$dest" ] || return 1
-    local dir="$2"
-    find -L "$dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | grep -i -m 1 "^$dest"
+    local dest="$1" dir="$2"
+    local pat=$(greppattern "$dest")
+    find -L "$dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | $GREP "$pat"
 }
 
-# Get directory from configuration file
-getfromconfig() {
-    local dest="$1"
-    [ -n "$dest" ] || return 1
-    perl -e '
-# Get destination and config file
-$dest = shift(@ARGV);
-$configfile = shift(@ARGV);
-
-# Slurp config file
-open(FILE, "<", $configfile);
-@lines = <FILE>;
-close(FILE);
-for(@lines) {   
-    s/^\s*//; # Remove leading space
-    s/\s*$//; # Remove trailing space
-} 
-@lines = grep(!/^#/, @lines); # Remove comments
-
-# Find lines matching given destination
-@match = grep(/^$dest/, @lines);
-exit unless @match;
-
-# Extract directory
-@fields = split(/\s+/, $match[0], 2);
-shift(@fields);
-exit unless @fields;
-print $fields[0];
-' "$dest" "$CONFIGFILE"
+# Add part to final directory
+addpart() {
+    local part="$1"
+    case "$JUMPDIR" in
+        ""|*/) # Empty or ends with slash
+            JUMPDIR+="$part";;
+        *) # Everything else
+            JUMPDIR+="/$part";;
+    esac
 }
 
 # Set directory to jump to
-setdir() {
-    local dest
-    local part
-    DIR=""
-    while [ -n "$1" ]; do
+setjumpdir() {
+    local dest part
+    while [ $# -gt 0 ]; do
         dest="$1"
         shift
-        if [ -z "$DIR" ]; then # First pass
+        [ -n "$dest" ] || continue
+        if [ -z "$JUMPDIR" ]; then # First pass
             case "$dest" in
                 ".")
                     part=$(pwd);;
                 "/"*)
                     [ -d "$dest" ] && part="$dest" || part="";;
                 *)
-                    part=$(getfromconfig "$dest");;
+                    part=$(getfrombookmarks "$dest");;
             esac
-        else 
-            part=$(getsubdir "$dest" "$DIR")
+        else # Not first pass
+            part=$(getsubdir "$dest" "$JUMPDIR")
         fi
-        [ -z "$part" ] && errorexit OTHER "unknown destination $dest"
-        [ -z "$DIR" ] && DIR="$part" || DIR+="/$part"
+        [ -z "$part" ] && errorexit NODEST "$dest"
+        addpart "$part"
     done
 }
 
@@ -105,18 +122,53 @@ jump - quickly jump to a directory
 Usage
     jump [OPTION...] [DESTINATION...]
 
+Description
+    The first destination can be be an absolute path to a directory, a
+    dot . for the current directory, a tilde ~ for the home directory,
+    or a regular expression used to search for a bookmark in the config
+    file. 
+
+    All other destinations are regular expression used to search for a
+    subdirectory of the directory given by the previous destination. 
+
+    The search is case insesitive, and is by default anchored to the
+    beginning of the bookmark or the directory name. Only the first
+    match is used.
+
+    jump only prints the found directory. A function is needed to really
+    change the working directory (see examples).
+
 Options
+    -s, --save FILE         Set file where the directory is saved
     -c, --config FILE       Set config file
-    -s, --show-config       Show config file
+    -v, --view-config       View config file
     -e, --edit-config       Edit config file
-    -f, --jump-function     Show jump function for .bashrc
+    -w, --which-config      Show path of config file
+    -a, --anywhere          Match anywhere, not only at the beginning
+
+Examples
+    # Add bookmark
+    echo 'sysdoc /usr/share/doc' >> $(jump -w)
+
+    # Jump to the bookmarked dir, or to one of its subdirs
+    jump sysdoc                 # /usr/share/doc
+    jump sysdoc bash            # /usr/share/doc/bash
+    jump s.*c py.*7 h           # /usr/share/doc/python2.7/html
+
+    # Jump to some other dirs
+    jump /usr loc src           # /usr/local/src
+    jump -a ~ ^\\.moz fir def   # ~/.mozilla/firefox/m2ivam4k.default
+
+    # A function is needed to really jump
+    j() { jump -s ~/.jump "$@" && cd "$(cat ~/.jump)"; }
+    j sysdoc bash
 EOF
 }
 
 # Command line processing
 TEMP=$(getopt \
-        -l help,config:,show-config,edit-config,show-func \
-        -o hc:sef \
+        -l help,save:,config:,view-config,edit-config,which-config,anywhere \
+        -o hs:c:vewa \
         -- "$@") || errorexit INVOPT
 eval set -- "$TEMP"
 
@@ -125,17 +177,23 @@ while true; do
         -h|--help)
             showhelp
             exit;;
+        -s|--save)
+            SAVEFILE="$2"
+            shift 2;;
         -c|--config)
             CONFIGFILE="$2"
             shift 2;;
-        -s|--show-config)
-            MODE="show-config"
+        -v|--view-config)
+            MODE="view-config"
             shift;;
         -e|--edit-config)
             MODE="edit-config"
             shift;;
-        -f|--show-func)
-            MODE="show-func"
+        -w|--which-config)
+            MODE="which-config"
+            shift;;
+        -a|--anywhere)
+            MATCHANYWHERE=1
             shift;;
         --)
             shift
@@ -146,26 +204,31 @@ while true; do
 done
 
 # Check that mode is not something unexpected
-inlist "$MODE" $ALLOWEDMODES || errorexit OTHER "unknown mode, this should not happen"
+inlist "$MODE" $ALLOWEDMODES || errorexit NOMODE
 
 # Check that config file exists if mode requires so
-[ "$MODE" = "show-func" -o -f "$CONFIGFILE" ] || errorexit NOTFILE "$CONFIGFILE"
+if ! inlist "$MODE" edit-config which-config; then
+    [ -f "$CONFIGFILE" ] || errorexit NOTFILE "$CONFIGFILE"
+fi
 
-# If mode is not jump, empty jump file and call appropriate function
-# (mode with hyphens removed)
-if [ "$MODE" != "jump" ]; then
-    > "$JUMPFILE"
+# If mode is not jump, call appropriate function
+if ! inlist "$MODE" jump dry-run; then
     ${MODE//-/}
-    exit
+    exit 9
 fi
 
-# Get the directory to jump to
+# Set directory to jump to
 if [ -z "$1" ]; then 
-    DIR="$HOME"
+    JUMPDIR="$HOME"
 else
-    setdir "$@"
+    setjumpdir "$@"
 fi
 
-echo "$DIR"
-echo "cd \"$DIR\"" > "$JUMPFILE"
+# Print...
+echo "$JUMPDIR"
+
+# Save...
+if [ -n "$SAVEFILE" ]; then
+    echo "$JUMPDIR" 2>/dev/null >"$SAVEFILE" || errorexit MKFILE "$SAVEFILE"
+fi
 
