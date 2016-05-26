@@ -13,10 +13,10 @@ ALLOWEDMODES="jump show-config edit-config show-func" # What can be done
 # Show a nice help message
 showhelp() {
     cat <<EOF
-jump - quickly jump to a predefined directory
+jump - quickly jump to a directory
 
 Usage:
-  jump [OPTIONS] [DESTINATION]
+  jump [OPTIONS] [DESTINATIONS]
 
 Options:
   -c, --config F        Specify config file
@@ -50,17 +50,68 @@ alias j=jump
 EOF
 }
 
-# Get directory to jump to
-getdir() {
+# Get subdirectory of given directory
+getsubdir() {
     local dest="$1"
-    local line
-    if [ -n "$dest" ]; then
-        line=$(grep -v '^ *#' "$CONFIGFILE" | grep -m 1 "^$dest")
-        eval set -- "$line"
-        echo "$2"
-    else 
-        echo ""
-    fi
+    [ -n "$dest" ] || return 1
+    local dir="$2"
+    find -L "$dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | grep -i -m 1 "^$dest"
+}
+
+# Get directory from configuration file
+getfromconfig() {
+    local dest="$1"
+    [ -n "$dest" ] || return 1
+    perl -e '
+# Get destination and config file
+$dest = shift(@ARGV);
+$configfile = shift(@ARGV);
+
+# Slurp config file
+open(FILE, "<", $configfile);
+@lines = <FILE>;
+close(FILE);
+for(@lines) {   
+    s/^\s*//; # Remove leading space
+    s/\s*$//; # Remove trailing space
+} 
+@lines = grep(!/^#/, @lines); # Remove comments
+
+# Find lines matching given destination
+@match = grep(/^$dest/, @lines);
+exit unless @match;
+
+# Extract directory
+@fields = split(/\s+/, $match[0], 2);
+shift(@fields);
+exit unless @fields;
+print $fields[0];
+' "$dest" "$CONFIGFILE"
+}
+
+# Set directory to jump to
+setdir() {
+    local dest
+    local part
+    DIR=""
+    while [ -n "$1" ]; do
+        dest="$1"
+        shift
+        if [ -z "$DIR" ]; then # First pass
+            case "$dest" in
+                ".")
+                    part=$(pwd);;
+                "/"*)
+                    [ -d "$dest" ] && part="$dest" || part="";;
+                *)
+                    part=$(getfromconfig "$dest");;
+            esac
+        else 
+            part=$(getsubdir "$dest" "$DIR")
+        fi
+        [ -z "$part" ] && errorexit OTHER "unknown destination $dest"
+        [ -z "$DIR" ] && DIR="$part" || DIR+="/$part"
+    done
 }
 
 # Command line processing
@@ -110,18 +161,12 @@ if [ "$MODE" != "jump" ]; then
 fi
 
 # Get the directory to jump to
-DEST="$1"
-if [ -z "$DEST" ]; then 
+if [ -z "$1" ]; then 
     DIR="$HOME"
 else
-    DIR=$(getdir "$DEST")
+    setdir "$@"
 fi
 
-# Store the actual cd command or exit with error
-if [ -n "$DIR" ]; then 
-    echo "$DIR"
-    echo "cd \"$DIR\"" > "$JUMPFILE"
-else
-    errorexit OTHER "unkown destination"
-fi
+echo "$DIR"
+echo "cd \"$DIR\"" > "$JUMPFILE"
 
