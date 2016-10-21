@@ -1,0 +1,243 @@
+#!/bin/bash
+
+##= head =##
+
+sourcelib "common"
+
+# Set some traps
+trap "errorexit SIGTERM" TERM HUP
+trap "errorexit SIGINT"  INT
+
+# Defaults
+FORMAT=""
+START=1
+STEP=1
+VERBOSE=0
+DRYRUN=0
+NULLTERM=0
+OLDNAMES=()
+NEWNAMES=()
+NRNAMES=0
+COUNTER=$START
+
+# Add old and new name
+addnames() {
+    [ -n "$1" ] || return
+    local oldname="$1"
+    local newname
+    if [ -n "$2" ]; then
+        newname="$2"
+    else
+        printf -v newname -- "$FORMAT" $COUNTER 2>/dev/null || errorexit OTHER 'cannot create new name'
+        (( COUNTER += STEP ))
+    fi
+    OLDNAMES[$NRNAMES]="$oldname"
+    NEWNAMES[$NRNAMES]="$newname"
+    (( NRNAMES++ ))
+}
+
+# Read names from command line arguments
+namesfromargs() {
+    while [ -n "$1" ]; do 
+        addnames "$1"
+        shift 
+    done
+}
+
+# Read names from stdin
+namesfromstdin() {
+    local d n
+    [ "$1" -eq 0 ] && d=$'\n' || d=$'\0'
+    while IFS='' read -d "$d" -r n || [ -n "$n" ]; do 
+        addnames "$n"
+    done
+}
+
+# Check that old and new names are unique
+checkunique() {
+    local nu
+
+    nu=$(printf '%s\0' "${OLDNAMES[@]}" | sort -z -u | grep -z -c '^')
+    [ $nu -eq $NRNAMES ] || errorexit OTHER 'old names are not unique'
+
+    nu=$(printf '%s\0' "${NEWNAMES[@]}" | sort -z -u | grep -z -c '^')
+    [ $nu -eq $NRNAMES ] || errorexit OTHER 'new names are not unique'
+}
+
+# Is passed argument an old name?
+isoldname() {
+    printf '%s\0' "${OLDNAMES[@]}" | grep -z -q "^$1$"
+}
+
+# Check that old names exist and that new names that will not be renamed
+# do not exist
+checkexist() {
+    local n
+
+    for n in "${OLDNAMES[@]}"; do
+        [ -e "$n" ] || errorexit NOTEXIST "$n" 
+    done
+
+    for n in "${NEWNAMES[@]}"; do
+        [ -e "$n" ] && ! isoldname "$n" && errorexit OTHER "$n already exists but will not be renamed"
+    done
+}
+
+# File does not need to be renamed
+needsnorenaming() {
+    local n="$1"
+    [ $VERBOSE -ne 0 ] && echo "$n --> $n (not changed)"
+}
+
+# Make a temporary name - 2nd method
+mktempname2() {
+    local on="$1"
+    local d=$(dirname "$on")
+    local b=$(basename "$on")
+    local tn
+    tn=$(tempfile -d "$d" -p "${b:0:4}_" -s ".tmp" 2>/dev/null)
+    if [ $? -eq 0 ]; then
+        echo "${tn#./}"
+        [ $DRYRUN -ne 0 ] && rm "$tn"
+    else 
+        return 1
+    fi
+}
+
+# Make a temporary name
+mktempname() {
+    local on="$1"
+    local tries=0 maxtries=5
+    local tn="$on"
+    while [ $tries -lt $maxtries ]; do
+        (( tries++ ))
+        tn+="~"
+        if [ ! -e "$tn" ]; then
+            echo "$tn"
+            return
+        fi
+    done
+    mktempname2 "$on"
+}
+
+# Rename a single file
+renamefile() {
+    local on="$1" nn="$2"
+    if [ $DRYRUN -eq 0 ]; then 
+        mv -- "$on" "$nn" || warn "cannot rename $on to $nn"
+    fi
+    [ $VERBOSE -ne 0 ] && echo "$on --> $nn"
+}
+
+# Report that file does not exist
+missingfile() {
+    echo "warning: $1 does not exist"
+}
+
+# Rename all files
+renameall() {
+    local i=0
+    local on nn tn # Old, new, and temporary name
+    local oldnr=$NRNAMES
+    while [ $i -lt $NRNAMES ]; do
+        on="${OLDNAMES[$i]}"
+        nn="${NEWNAMES[$i]}"
+        if [ "$on" = "$nn" ]; then
+            # Old and new name are the same
+            needsnorenaming "$on"
+        elif [ $i -lt $oldnr -a -e "$nn" ]; then
+            # New name already exists - use temporary name
+            tn=$(mktempname "$on") || errorexit TEMPFILE
+            renamefile "$on" "$tn"
+            addnames "$tn" "$nn"
+        else
+            # Just rename
+            renamefile "$on" "$nn"
+        fi
+        (( i++ ))
+    done
+}
+
+# Show a nice help message
+showhelp() {
+    cat <<"EOF"
+srename - sequentially rename files
+
+Usage:
+  srename [OPTIONS] [FILES]
+
+Options:
+* -f, --format F    Format (printf) for new names
+  -s, --start N     Starting number
+  -p, --step N      Increment step
+  -v, --verbose     Print what is going on
+  -n, --dry-run     Do not rename files
+  -0, --null        Names read from stdin are zero/null terminated
+
+Examples:
+  srename -f rec_%02d.mp3 *.mp3
+  srename -f p%03d.tif -s 1 -p 2 *.tif
+  srename -f p%03d.tif -s 100 -p -2 *.tif
+  ls *.jpg | grep -v ^a | srename -f b%03d.jpg
+
+EOF
+}
+
+# Command line processing
+TEMP=$(getopt \
+        -l help,format:,start:,step:,verbose,dry-run,null \
+        -o hf:s:p:vn0 \
+        -- "$@") || errorexit INVOPT
+eval set -- "$TEMP"
+
+while true; do
+    case "$1" in
+        -h|--help)
+            showhelp
+            exit 0;;
+        -f|--format)
+            FORMAT="$2"
+            shift 2;;
+        -s|--start)
+            isint "$2" || errorexit INVVAL "$2"
+            START=$2
+            COUNTER=$START
+            shift 2;;
+        -p|--step)
+            isint "$2" && [ $2 -ne 0 ] || errorexit INVVAL "$2"
+            STEP=$2
+            shift 2;;
+        -v|--verbose)
+            VERBOSE=1
+            shift;;
+        -n|--dry-run)
+            DRYRUN=1
+            shift;;
+        -0|--null)
+            NULLTERM=1
+            shift;;
+        --)
+            shift
+            break;;
+        -*)
+            errorexit UNPROCOPT;;
+    esac
+done
+
+[ -n "$FORMAT" ] || errorexit MISSOPT "-f"
+
+# Create list of old and new names
+if [ -t 0 ]; then
+    namesfromargs "$@"
+else 
+    namesfromstdin "$NULLTERM"
+fi
+[ "$NRNAMES" -gt 0 ] || exit # Nothing to do
+
+# Checks
+checkunique
+checkexist
+
+# Rename all files
+renameall
+
