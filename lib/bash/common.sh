@@ -159,12 +159,12 @@ joinpaths() {
     echo "$r" | perl -p -e 's{/+}{/}g'
 }
 
-# Get the extension of a filename; note that "${1##*.}" alone would not
-# work when the extension is misssing
-getext() {
-    case "$1" in
+# Return extension of $1 if it has one, otherwise return nothing
+pathext() {
+    local b=$(basename "$1")
+    case "$b" in 
         *.*)
-            echo "${1##*.}";;
+            echo "${b##*.}";;
     esac
 }
 
