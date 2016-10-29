@@ -7,61 +7,82 @@ REALPATH=$(realpath "$0")
 # Should messages begin with the program's name? 0 = false, everything else = true
 PRINTNAME=0
 
+# Print a message to stderr
 printmsg() {
     [ "$PRINTNAME" -ne 0 ] && echo -n "$PROGNAME: " >&2
     echo "$1" >&2
 }
 
+# Print a warning
 warn() {
     printmsg "warning: $1"
 }
 
-# Built-in error messages
-_errormsg() {
-    local msg
-    local errorcode="$1"
-    shift
-    case "$errorcode" in
-        SIGTERM)    msg="program terminated";;
-        SIGINT)     msg="program interrupted by user";;
-        INVOPT)     msg="invalid option, try --help";;
-        MISSOPT)    msg="missing option $1";;
-        UNPROCOPT)  msg="oops, unprocessed option $1";;
-        INVVAL)     msg="invalid value $1";;
-        MISSVAL)    msg="option $1 requires a value";;
-        MISSARG)    msg="missing required argument";;
-        INVARG)     msg="invalid argument $1";;
-        NODO)       msg="nothing to do";;
-        RC)         msg="error in config file $1";;
-        CHILD)      msg="$1 exited with non-zero status";;
-        EXISTS)     msg="$1 already exists";;
-        NOTEXIST)   msg="$1 does not exist";;
-        NOTFILE)    msg="$1 does not exist or is not a regular file";;
-        NOTDIR)     msg="$1 is not a directory";;
-        TEMPFILE)   msg="cannot create temporary file";;
-        MKFILE)     msg="cannot create file $1";;
-        MKDIR)      msg="cannot create directory $1";;
-        RMFILE)     msg="cannot remove file $1";;
-        RMDIR)      msg="cannot remove directory $1";;
-        MOUNTED)    msg="$1 is already mounted";;
-        NOTMOUNTED) msg="$1 is not mounted";;
-        OTHER)      msg="$1";;
-        *)          msg="unknown error $errorcode";;
-    esac
-    echo "$msg"
+# Error handling routines
+
+# Array of error messages
+ERRORMSGS=()
+
+# Add error messages
+adderrormsgs() {
+    local code msg
+    while [ $# -ge 2 ]; do
+        code=${1//\'/\'\\\'\'}
+        msg=${2//\'/\'\\\'\'}
+        ERRORMSGS+=("'$code' '$msg'") 
+        shift 2
+    done
+    if [ $# -ne 0 ]; then
+        printmsg "error: $FUNCNAME needs an even number of arguments"
+        exit 1
+    fi
 }
 
-# If additional error messages are needed, then this should be redefined
-# similar to _errormsg
+# Default error messages
+adderrormsgs \
+    SIGTERM    'program terminated' \
+    SIGINT     'program interrupted by user' \
+    INVOPT     'invalid option, try --help' \
+    MISSOPT    'missing option %s' \
+    UNPROCOPT  'oops, unprocessed option %s' \
+    INVVAL     'invalid value %s' \
+    MISSVAL    'option %s requires a value' \
+    MISSARG    'missing required argument' \
+    INVARG     'invalid argument %s' \
+    NODO       'nothing to do' \
+    RC         'error in config file %s' \
+    CHILD      '%s exited with non-zero status' \
+    EXISTS     '%s already exists' \
+    NOTEXIST   '%s does not exist' \
+    NOTFILE    '%s does not exist or is not a regular file' \
+    NOTDIR     '%s is not a directory' \
+    TEMPFILE   'cannot create temporary file' \
+    MKFILE     'cannot create file %s' \
+    MKDIR      'cannot create directory %s' \
+    RMFILE     'cannot remove file %s' \
+    RMDIR      'cannot remove directory %s' \
+    MOUNTED    '%s is already mounted' \
+    NOTMOUNTED '%s is not mounted' \
+    OTHER      '%s'
+
+# Return error message given its code
 errormsg() {
-    echo ""
+    local code="$1" e
+    for e in "${ERRORMSGS[@]}"; do
+        eval set -- "$e"
+        if [ "$1" = "$code" ]; then
+            echo "$2"
+            return
+        fi
+    done
+    echo "unknown error code $code"
 }
 
 # Exit due to error
 errorexit() {
-    local msg
-    msg=$(errormsg "$@")
-    [ -z "$msg" ] && msg=$(_errormsg "$@")
+    local code="$1" msg
+    shift
+    printf -v msg "$(errormsg "$code")" "$@"
     printmsg "error: $msg"
     exit 1
 }
@@ -71,19 +92,6 @@ showhelp() {
     cat <<EOF
 Use the source, Luke! ;)
 EOF
-}
-
-# Make list of arguments from stdin or from command line arguments;
-# arguments are separated by newlines; empty lines are filtered out
-mkarglist() {
-    local usestdin=$1
-    shift
-    if [ $usestdin -eq 0 ]; then
-        local IFS=$'\n'
-        echo "$*"
-    else
-        cat
-    fi | grep .
 }
 
 # Is $1 an integer?
@@ -121,7 +129,7 @@ inlist() {
     local v0="$1"
     local v
     shift
-    for v in "$@"; do 
+    for v; do 
         [ "$v0" = "$v" ] && return 0
     done
     return 1
@@ -151,8 +159,8 @@ isexecutable() {
 
 # Join $1, $2, ... with / and remove extra /'s; empty arguments are ignored
 joinpaths() {
-    local r=""
-    for p in "$@"; do
+    local p r=""
+    for p; do
         [ -z "$p" ] && continue
         [ -n "$r" ] && r+="/$p" || r="$p"
     done

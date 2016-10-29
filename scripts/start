@@ -15,14 +15,8 @@ NODISOWN=() # List of programs that should not be disowned
 WANTEDTYPE="" # Wanted file type from command line
 
 # Additional error messages
-errormsg() {
-    local code="$1" msg
-    shift
-    case "$code" in 
-        MINPARS)    msg="$1 needs $2 non-empty parameters (config file, line $3)";;
-    esac
-    echo "$msg"
-}
+adderrormsgs \
+    MINPARS "%s needs %d non-empty parameters (config file, line %d)"
 
 # Functions that set file properties
 
