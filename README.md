@@ -20,6 +20,7 @@ List of scripts
 - onevim    - edit files using only one Vim instance
 - par       - wrapper around xargs to allow easy execution of parallel jobs
 - srename   - sequentially rename files
+- start     - a file starter / launcher
 
 
 Installation

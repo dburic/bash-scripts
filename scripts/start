@@ -1,0 +1,328 @@
+#!/bin/bash 
+
+##= head =##
+
+sourcelib "common"
+
+# Defaults
+CONFIGFILE="$CONFIGDIR/start.conf" # Configuration file
+GREP="grep -E -i -q --" # How to call grep when evaluating type conditions
+TYPECONDS=() # Type conditions
+USECONDS=() # Use conditions
+WANTEDMODE="" # Wanted mode from command line
+DEFAULTMODE="view" # Default mode - used when use condition has no modes
+NODISOWN=() # List of programs that should not be disowned
+WANTEDTYPE="" # Wanted file type from command line
+
+# Additional error messages
+errormsg() {
+    local code="$1" msg
+    shift
+    case "$code" in 
+        MINPARS)    msg="$1 needs $2 non-empty parameters (config file, line $3)";;
+    esac
+    echo "$msg"
+}
+
+# Functions that set file properties
+
+set_NAME() {
+    FILE_NAME=$(basename "$FILE")
+}
+
+set_EXT() {
+    FILE_EXT=$(pathext "$FILE")
+}
+
+set_PATH() {
+    FILE_PATH=$(realpath -s "$FILE")
+}
+
+set_MIME() {
+    FILE_MIME=$(file -L -i -b -- "$FILE")
+}
+
+# Is variable $1 set?
+isset() {
+    declare -p "$1" >/dev/null 2>&1
+}
+
+# Make sure that file properties are set
+needs() {
+    local p
+    for p; do
+        isset "FILE_$p" || set_$p
+    done
+}
+
+# Check that we have at least $1 non-empty parameters in $2, $3, ...
+minpars() {
+    local min="$1"
+    shift
+    while [ $min -gt 0 ]; do
+        (( min-- ))
+        [ -n "$1" ] || return 1
+        shift
+    done
+    return 0
+}
+
+# Prepare command for adding to array
+prepcmd() {
+    local cmd="'$1'" p
+    shift
+    for p; do
+        p=${p//\'/\'\\\'\'}
+        cmd+=" '$p'"
+    done
+    echo "$cmd"
+}
+
+# Add type condition
+addtypecond() {
+    local cmd=$(prepcmd "$@")
+    TYPECONDS+=("$cmd")
+}
+
+# Process built-in type condition
+typecond() {
+    local f="${FUNCNAME[1]}" # Calling function
+    minpars 2 "$@" || errorexit MINPARS "$f" 2 ${BASH_LINENO[1]}
+    addtypecond eval_$f "$@"
+}
+
+# Evaluate built-in type condition
+eval_typecond() {
+    local f="${FUNCNAME[1]}" # Calling function
+    local p=$(echo "${f#eval_}" | tr '[[:lower:]]' '[[:upper:]]') # Property
+    local v="FILE_$p" re="$1" t="$2" # Variable, regular expression, type
+    needs "$p"
+    echo "${!v}" | $GREP "$re" && FILE_TYPE="$t"
+}
+
+# Functions for built-in type conditions
+
+ext() {
+    typecond "$@"
+}
+
+eval_ext() {
+    eval_typecond "$@"
+}
+
+name() {
+    typecond "$@"
+}
+
+eval_name() {
+    eval_typecond "$@"
+}
+
+path() {
+    typecond "$@"
+}
+
+eval_path() {
+    eval_typecond "$@"
+}
+
+mime() {
+    typecond "$@"
+}
+
+eval_mime() {
+    eval_typecond "$@"
+}
+
+# Add use condition
+addusecond() {
+    local cmd=$(prepcmd "eval_use" "$@")
+    USECONDS+=("$cmd")
+}
+
+# Process use condition
+use() {
+    minpars 2 "$@" || errorexit MINPARS "use" 2 ${BASH_LINENO[0]}
+    local program="$1" types=() modes=() t
+    shift
+    # Process types
+    while true; do 
+        [ -z "$1" -o "$1" = "-m" ] && break
+        types+=("$1")
+        shift
+    done
+    [ "$1" = "-m" ] && shift
+    # Process modes
+    while true; do
+        [ -z "$1" ] && break
+        modes+=("$1")
+        shift
+    done
+    [ ${#modes[@]} -eq 0 ] && modes=("$DEFAULTMODE")
+    for t in "${types[@]}"; do
+        addusecond "$program" "$t" "${modes[@]}"
+    done
+}
+
+# Evaluate use condition
+eval_use() {
+    local p="$1" t="$2" m
+    [ "$FILE_TYPE" = "$t" ] || return 
+    shift 2
+    for m; do
+        if [ -z "$WANTEDMODE" -o "$WANTEDMODE" = "$m" ]; then
+            PROGRAM="$p"
+            MODE="$m"
+            break
+        fi
+    done
+}
+
+# Set default starting mode
+defaultmode() {
+    DEFAULTMODE="$1"
+}
+
+# Add programs to the no-disown list
+nodisown() {
+    local p
+    for p; do
+        NODISOWN+=("$p")
+    done
+}
+
+# Reset all file properties
+resetproperties() {
+    FILE="$1"
+    unset FILE_EXT FILE_NAME FILE_PATH FILE_MIME FILE_TYPE
+    unset MODE PROGRAM
+}
+
+# Set file type
+settype() {
+    if [ -n "$WANTEDTYPE" ]; then
+        FILE_TYPE="$WANTEDTYPE"
+        return
+    fi
+    local c
+    for c in "${TYPECONDS[@]}"; do
+        eval set -- "$c"
+        "$@"
+        isset FILE_TYPE && break
+    done
+}
+
+# Set program for starting the file
+setprogram() {
+    local p
+    for p in "${USECONDS[@]}"; do
+        eval set -- "$p"
+        "$@"
+        isset PROGRAM && break
+    done
+}
+
+# Start program
+startprogram() {
+    local starter="start_$PROGRAM" 
+    if [ "$(type -t "$starter")" = "function" ]; then
+        $starter
+    elif inlist "$PROGRAM" "${NODISOWN[@]}"; then
+        "$PROGRAM" "$FILE"
+    else 
+        "$PROGRAM" "$FILE" & disown
+    fi
+}
+
+# Start one file
+startone() {
+    local f="$1"
+    resetproperties "$f"
+    settype
+    if ! isset FILE_TYPE; then
+        warn "unknown type for file $f"
+        return 1
+    fi
+    setprogram
+    if ! isset PROGRAM; then
+        warn "cannot find program for file $f of type $FILE_TYPE"
+        return 1
+    fi
+    startprogram    
+}
+
+# Start all files passed on the command line
+startall() {
+    local f
+    while [ $# -gt 0 ]; do
+        f="$1"
+        shift
+        if [ ! -e "$f" ]; then
+            warn "$f does not exist"
+            continue
+        fi
+        startone "$f"
+    done
+}
+
+# Read configuration file
+readconfig() {
+    source "$CONFIGFILE" || errorexit RC "$CONFIGFILE"
+}
+
+# Show a nice help message
+showhelp() {
+    cat <<EOF
+start - a file starter/launcher
+
+Usage:
+  start [OPTIONS] [FILES]
+
+Options:
+  -c, --config F    Set config file
+  -m, --mode M      Set starting mode
+  -t, --type T      Force file type
+
+Examples:
+  start file1.odt file2.ods file3.pdf
+  start -m view file.doc
+
+EOF
+}
+
+# Program starts here
+
+# Command line processing
+TEMP=$(getopt \
+        -l help,mode:type: \
+        -o hm:t: \
+        -- "$@") || errorexit INVOPT
+eval set -- "$TEMP"
+
+while true; do
+    case "$1" in
+        -h|--help)
+            showhelp
+            exit;;
+        -c|--config)
+            CONFIGFILE="$2"
+            shift 2;;
+        -m|--mode)
+            WANTEDMODE="$2"
+            shift 2;;
+        -t|--type)
+            WANTEDTYPE="$2"
+            shift 2;;
+        --)
+            shift
+            break;;
+        -*)
+            errorexit UNPROCOPT;;
+    esac
+done
+
+[ -f "$CONFIGFILE" ] || errorexit NOFILE "$CONFIGFILE"
+readconfig
+
+startall "$@"
+
