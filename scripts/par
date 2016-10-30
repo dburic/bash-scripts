@@ -22,31 +22,31 @@ USESHELL=0
 
 # Show a nice help message
 showhelp() {
-    cat <<EOF
-$PROGNAME - wrapper around xargs to allow easy execution of parallel jobs
+    cat <<"EOF"
+par - wrapper around xargs for easy execution of parallel jobs
 
-Usage:
-  $PROGNAME [OPTIONS] [-- COMMAND [ARGS]]
+Usage
+    par [OPTION...] [-- COMMAND [ARG...]]
 
-Options:
-  -P, --max-procs N   Max number of processes to run in parallel
-  -n, --max-args N    Max number of arguments per command
-  -N, --nice N        Adjust niceness
-  -v, --verbose       Print each executed command
-  -s, --shell         Pass the command to bash - needed with pipes and
-                      redirects
+Options
+    -P, --max-procs NUM     Max number of processes to run in parallel
+    -n, --max-args NUM      Max number of arguments per command
+    -N, --nice NUM          Adjust niceness
+    -v, --verbose           Print each executed command
+    -s, --shell             Pass the command to bash - needed with pipes
+                            and redirects
 
-Examples:
-  ls *.wav | par -v -- oggenc -Q -q 3.5
+Examples
+    ls *.wav | par -v -- oggenc -Q -q 3.5
 
-  for f in *.wav; do
-    echo "\$f"
-    echo "\${f%.*}.mp3"
-  done | par -v -n 2 -- lame --quiet --preset extreme
+    for f in *.wav; do
+        echo "$f"
+        echo "${f%.*}.mp3"
+    done | par -v -n 2 -- lame --quiet --preset extreme
 
-  for f in *.pbm; do
-    echo "pnmtotiff -g4 '\$f' > 'out/\${f%.*}.tif'" 
-  done | par -v -N 10 -P 4 -s
+    for f in *.pbm; do
+        echo "pnmtotiff -g4 '$f' > 'out/${f%.*}.tif'" 
+    done | par -v -N 10 -P 4 -s
 EOF
 }
 

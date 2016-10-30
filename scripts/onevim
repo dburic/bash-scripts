@@ -11,26 +11,6 @@ GUIVIM="/usr/bin/gvim"
 SERVERNAME="ONEVIM"
 FILES="" # Cumulative list of files to edit
 
-# Show a nice help message
-showhelp() {
-    cat <<EOF
-onevim - edit files using only one Vim instance
-
-Usage:
-  onevim [OPTIONS] [FILES]
-
-Options:
-  -l, --list F
-  -c, --console, --no-gui
-
-Examples:
-  onevim file.txt
-  onevim *.php
-  onevim -l mylist
-  grep -r --include '*.php' -l 'function.*foo' | onevim
-EOF
-}
-
 # Is the server started?
 serverstarted() {
     $VIM --serverlist | grep -q "^$SERVERNAME$"
@@ -62,6 +42,27 @@ addargs() {
     for f in "$@"; do 
         addfile "$f"
     done
+}
+
+# Show a nice help message
+showhelp() {
+    cat <<"EOF"
+onevim - edit files using only one Vim instance
+
+Usage
+    onevim [OPTION...] [FILE...]
+
+Options
+    -l, --list FILE     Read files to edit from file
+    -c, --console, --no-gui 
+                        Force use of console version of Vim
+
+Examples
+    onevim file.txt
+    onevim *.php
+    onevim -l mylist
+    grep -r --include '*.php' -l 'function.*foo' | onevim
+EOF
 }
 
 # Command line processing

@@ -10,23 +10,6 @@ JUMPFILE="$HOME/.jump" # File with cd command
 MODE="jump" # What to do
 ALLOWEDMODES="jump show-config edit-config show-func" # What can be done
 
-# Show a nice help message
-showhelp() {
-    cat <<EOF
-jump - quickly jump to a directory
-
-Usage:
-  jump [OPTIONS] [DESTINATIONS]
-
-Options:
-  -c, --config F        Specify config file
-  -s, --show-config     Show config file
-  -e, --edit-config     Edit config file
-  -f, --jump-function   Show jump function for .bashrc
-
-EOF
-}
-
 # Show config file
 showconfig() {
     cat "$CONFIGFILE"
@@ -112,6 +95,22 @@ setdir() {
         [ -z "$part" ] && errorexit OTHER "unknown destination $dest"
         [ -z "$DIR" ] && DIR="$part" || DIR+="/$part"
     done
+}
+
+# Show a nice help message
+showhelp() {
+    cat <<"EOF"
+jump - quickly jump to a directory
+
+Usage
+    jump [OPTION...] [DESTINATION...]
+
+Options
+    -c, --config FILE       Set config file
+    -s, --show-config       Show config file
+    -e, --edit-config       Edit config file
+    -f, --jump-function     Show jump function for .bashrc
+EOF
 }
 
 # Command line processing

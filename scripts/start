@@ -266,21 +266,20 @@ readconfig() {
 
 # Show a nice help message
 showhelp() {
-    cat <<EOF
+    cat <<"EOF"
 start - a file starter/launcher
 
-Usage:
-  start [OPTIONS] [FILES]
+Usage
+    start [OPTION...] [FILE...]
 
-Options:
-  -c, --config F    Set config file
-  -m, --mode M      Set starting mode
-  -t, --type T      Force file type
+Options
+    -c, --config FILE   Set config file
+    -m, --mode MODE     Set starting mode
+    -t, --type TYPE     Force file type
 
-Examples:
-  start file1.odt file2.ods file3.pdf
-  start -m view file.doc
-
+Examples
+    start file1.odt file2.ods file3.pdf
+    start -m view file.doc
 EOF
 }
 

@@ -163,23 +163,22 @@ showhelp() {
     cat <<"EOF"
 srename - sequentially rename files
 
-Usage:
-  srename [OPTIONS] [FILES]
+Usage
+    srename [OPTION...] [FILE...]
 
-Options:
-* -f, --format F    Format (printf) for new names
-  -s, --start N     Starting number
-  -p, --step N      Increment step
-  -v, --verbose     Print what is going on
-  -n, --dry-run     Do not rename files
-  -0, --null        Names read from stdin are zero/null terminated
+Options
+    -f, --format FMT    Set format (printf) for new names
+    -s, --start NUM     Set starting number
+    -p, --step NUM      Set increment step
+    -v, --verbose       Print what is going on
+    -n, --dry-run       Do not rename files
+    -0, --null          Names read from stdin are zero/null terminated
 
-Examples:
-  srename -f rec_%02d.mp3 *.mp3
-  srename -f p%03d.tif -s 1 -p 2 *.tif
-  srename -f p%03d.tif -s 100 -p -2 *.tif
-  ls *.jpg | grep -v ^a | srename -f b%03d.jpg
-
+Examples
+    srename -f rec_%02d.mp3 *.mp3
+    srename -f p%03d.tif -s 1 -p 2 *.tif
+    srename -f p%03d.tif -s 100 -p -2 *.tif
+    ls *.jpg | grep -v ^a | srename -f b%03d.jpg
 EOF
 }
 
