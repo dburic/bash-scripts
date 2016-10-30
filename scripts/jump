@@ -5,7 +5,7 @@
 sourcelib "common"
 
 # Defaults
-CONFIGFILE="$CONFIGDIR/jump" # File with destinations and directories
+CONFIGFILE="$CONFIGDIR/jump.conf" # File with destinations and directories
 JUMPFILE="$HOME/.jump" # File with cd command
 MODE="jump" # What to do
 ALLOWEDMODES="jump show-config edit-config show-func" # What can be done
