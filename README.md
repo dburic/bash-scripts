@@ -20,8 +20,7 @@ List of scripts
 - onevim    - edit files using only one Vim instance
 - par       - wrapper around xargs to allow easy execution of parallel jobs
 - srename   - sequentially rename files
-- start     - a file starter / launcher
-
+- start     - a file starter/launcher
 
 Installation
 ------------------------------
@@ -50,9 +49,21 @@ If you have chosen `$HOME` as your installation directory and are
 satisfied with the default config directory, then you don't have to edit
 `head.sh`, just call yruba:
 
-    yruba prepare
     yruba install
 
 Executable files are copied to `$PREFIX/bin`, while libraries are copied to
 `$PREFIX/lib/bash`.
+
+Configuration
+------------------------------
+
+By default, the scripts look for their config files in the directory
+specified in the `CONFIGDIR` variable (see above). 
+
+Examples of config files can be found in the `doc` directory.
+
+Documentation and help
+------------------------------
+
+Each script has a `--help` switch, which will print a help page.
 
