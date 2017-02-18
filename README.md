@@ -25,10 +25,8 @@ List of scripts
 Installation
 ------------------------------
 
-[Yruba](http://www.pifpafpuf.de/Yruba/), a build system for Bash by
-[Harald Kirsch](http://www.pifpafpuf.de/), is needed for installation.
-Perl is also required (although, this dependency could be easily
-removed).
+[Yruba](https://github.com/morhekil/yruba), a build system for Bash, is needed
+for installation.  Perl is also required.
 
 The installation procedure will overwrite files without asking, so be
 careful.
