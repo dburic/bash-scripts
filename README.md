@@ -26,7 +26,7 @@ Installation
 ------------------------------
 
 [Yruba](https://github.com/morhekil/yruba), a build system for Bash, is needed
-for installation.  Perl is also required.
+for installation.
 
 The installation procedure will overwrite files without asking, so be
 careful.

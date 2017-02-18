@@ -14,6 +14,33 @@ for f in $SCRIPTS; do
     mapTarget "$f" "prepare1"
 done
 
+# Return file to include
+filetoinclude() {
+    local l="$1"
+    local f
+    f=${l#\#\#= }
+    f=${f% =\#\#}
+    echo "$f.sh"
+}
+
+# Process include directives
+procincludes() {
+    local f="$1" # in
+    local g="$2" # out
+    local h l
+    while IFS="" read -r l || [ -n "$l" ]; do
+        case "$l" in
+            "##= "*"=##"*)
+                h=$(filetoinclude "$l")
+                cat "$h"
+                ;;
+            *)
+                echo "$l"
+                ;;
+        esac
+    done <"$f" >"$g"
+}
+
 test_prepare1() {
     local f="$1"
     local g="${f##*/}"
@@ -24,20 +51,9 @@ cmd_prepare1() {
     local f="$1"
     local g="${f##*/}"
     [ -d "bin" ] || mkdir "bin"
-
-    # Replace lines starting with ##= file =## with the contents of file.sh
-    perl -ne 'if(m{^\#\#=\s+(\S+)\s+=\#\#\s*$}) { 
-        open(FH, "<", "$1.sh");
-        @lines = <FH>;
-        print @lines;
-    }
-    else {  
-        print;
-    }' "$f" >"bin/$g"
-
+    procincludes "$f" "bin/$g"
     chmod +x "bin/$g"
 }
-
 
 # Prepare all scripts for installation
 
