@@ -59,15 +59,15 @@ dep_install() {
 cmd_install() {
     local bindir="$PREFIX/bin"
     local libdir="$PREFIX/lib/bash"
-    local d f b
-    for d in "$bindir" "$libdir"; do 
-        [ -d "$d" ] || mkdir -p "$d"
-    done
+    local d f
+    [ -d "$bindir" ] || mkdir -p "$bindir"
     find bin -type f | while read f; do
         install -m 755 "$f" "$bindir"
     done
     find lib -type f | while read f; do
-        install -m 644 "$f" "$libdir"
+        d=${f%/*}; d=${d#lib}; d="$libdir$d"
+        [ -d "$d" ] || mkdir -p "$d"
+        install -m 644 "$f" "$d"
     done
 }
 
