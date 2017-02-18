@@ -17,10 +17,8 @@ done
 # Return file to include
 filetoinclude() {
     local l="$1"
-    local f
-    f=${l#\#\#= }
-    f=${f% =\#\#}
-    echo "$f.sh"
+    local h=${l#\#\#include }
+    echo "$h"
 }
 
 # Process include directives
@@ -30,7 +28,7 @@ procincludes() {
     local h l
     while IFS="" read -r l || [ -n "$l" ]; do
         case "$l" in
-            "##= "*"=##"*)
+            "##include "*)
                 h=$(filetoinclude "$l")
                 cat "$h"
                 ;;

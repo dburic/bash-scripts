@@ -1,7 +1,6 @@
 #!/bin/bash
 
-##= head =##
-
+##include head.sh
 sourcelib "common"
 
 # Set some traps
