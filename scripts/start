@@ -25,7 +25,7 @@ set_NAME() {
 }
 
 set_EXT() {
-    FILE_EXT=$(pathext "$FILE")
+    FILE_EXT=$(fileext "$FILE")
 }
 
 set_PATH() {

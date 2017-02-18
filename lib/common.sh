@@ -168,7 +168,7 @@ joinpaths() {
 }
 
 # Return extension of $1 if it has one, otherwise return nothing
-pathext() {
+fileext() {
     local b=$(basename "$1")
     case "$b" in 
         *.*)
