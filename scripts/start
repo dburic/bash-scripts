@@ -218,7 +218,7 @@ setprogram() {
 # Start program
 startprogram() {
     local starter="start_$PROGRAM" 
-    if [ "$(type -t "$starter")" = "function" ]; then
+    if isfunction "$starter"; then
         $starter
     elif inlist "$PROGRAM" "${NODISOWN[@]}"; then
         "$PROGRAM" "$FILE"

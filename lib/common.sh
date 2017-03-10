@@ -146,6 +146,11 @@ ismounted() {
     mount | grep -q -E "(^$1 | on $1 )"
 }
 
+# Is $1 a function?
+isfunction() {
+    [ "$(type -t "$1")" = "function" ]
+}
+
 # Is $1 an executable file?
 isexecutable() {
     if [ -x "$1" ]; then
