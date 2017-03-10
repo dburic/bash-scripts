@@ -313,7 +313,7 @@ while true; do
     esac
 done
 
-[ -f "$CONFIGFILE" ] || errorexit NOFILE "$CONFIGFILE"
+[ -f "$CONFIGFILE" ] || errorexit NOTFILE "$CONFIGFILE"
 readconfig
 
 startall "$@"
