@@ -87,13 +87,30 @@ typecond() {
 # Evaluate built-in type condition
 eval_typecond() {
     local f="${FUNCNAME[1]}" # Calling function
-    local p=$(echo "${f#eval_}" | tr '[[:lower:]]' '[[:upper:]]') # Property
-    local v="FILE_$p" re="$1" t="$2" # Variable, regular expression, type
-    needs "$p"
-    echo "${!v}" | $GREP "$re" && FILE_TYPE="$t"
+    local p=$(echo "${f#eval_}" | tr '[[:lower:]]' '[[:upper:]]') # Condition / property
+    local re="$1" t="$2" # Regular expression, type
+    if [ "$p" = "MATCH" ]; then
+        echo "$FILE" | $GREP "$re" && FILE_TYPE="$t"
+    else 
+        if [ ! -e "$FILE" ]; then
+            warn "$FILE does not exist"
+            return
+        fi
+        local v="FILE_$p" # Variable
+        needs "$p"
+        echo "${!v}" | $GREP "$re" && FILE_TYPE="$t"
+    fi
 }
 
 # Functions for built-in type conditions
+
+match() {
+    typecond "$@"
+}
+
+eval_match() {
+    eval_typecond "$@"
+}
 
 ext() {
     typecond "$@"
@@ -187,6 +204,7 @@ nodisown() {
 # Reset all file properties
 resetproperties() {
     FILE="$1"
+    URL="$1"
     unset FILE_EXT FILE_NAME FILE_PATH FILE_MIME FILE_TYPE
     unset MODE PROGRAM
 }
@@ -246,15 +264,9 @@ startone() {
 
 # Start all files passed on the command line
 startall() {
-    local f
     while [ $# -gt 0 ]; do
-        f="$1"
+        startone "$1"
         shift
-        if [ ! -e "$f" ]; then
-            warn "$f does not exist"
-            continue
-        fi
-        startone "$f"
     done
 }
 
@@ -266,10 +278,10 @@ readconfig() {
 # Show a nice help message
 showhelp() {
     cat <<"EOF"
-start - a file starter/launcher
+start - a file and URL starter/launcher
 
 Usage
-    start [OPTION...] [FILE...]
+    start [OPTION...] [FILE...] [URL...]
 
 Options
     -c, --config FILE   Set config file
@@ -279,6 +291,7 @@ Options
 Examples
     start file1.odt file2.ods file3.pdf
     start -m view file.doc
+    start https://www.gnu.org/software/bash/
 EOF
 }
 
