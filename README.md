@@ -17,6 +17,7 @@ List of scripts
 ------------------------------
 
 - jump      - quickly jump to a directory
+- kwstart   - quickly start a file or USR via keyword
 - onevim    - edit files using only one Vim instance
 - par       - wrapper around xargs to allow easy execution of parallel jobs
 - srename   - sequentially rename files

@@ -1,0 +1,243 @@
+#!/bin/bash 
+
+##include head.sh
+sourcelib "common"
+
+# Defaults
+CONFIGFILE="$CONFIGDIR/kwstart.conf" # File with keywords and destinations
+MODE="start" # Default mode
+ALLOWEDMODES="start view-config edit-config which-config"
+KEYWORD="" # Keyword from command line
+DESTINATION="" # Destination from config file
+DRYRUN=0 # Do not start the destionation, only print it
+QUIET=0 # Do not print the destionation
+STARTER="start" # Default starter
+ARGSMACRO="{@}" # Arguments macro
+ARGS=() # Array of arguments from command line
+
+# Additional error messages
+adderrormsgs \
+    NOMODE 'unknown mode, this should not happen' \
+    MISSKW 'missing keyword' \
+    UNKNOWNKW 'unknown keyword %s'
+
+# Functions to add arguments to ARGS
+addarg() {
+    ARGS+=("$1")
+}
+
+addargs() {
+    local a
+    for a; do 
+        addarg "$a"
+    done
+}
+
+addlist() {
+    local f="$1" l
+    while read -r l || [ -n "$l" ]; do 
+        eval set -- "$l"
+        addargs "$@"
+    done < <(cat "$f")
+}
+
+# Process line from config file
+procline() {
+    if [ "$KEYWORD" = "$1" ]; then
+        DESTINATION="$2"
+    fi
+}
+
+# Read config file
+readconfig() {
+    local l
+    while read -r l || [ -n "$l" ]; do
+        case "$l" in 
+            "#"*|"")
+                continue;;
+        esac
+        eval -- "procline $l"
+        [ -n "$DESTINATION" ] && break
+    done < "$CONFIGFILE"
+}
+
+# Does destination contain arguments macro?
+desthasmacro() {
+    case "$DESTINATION" in 
+        *"$ARGSMACRO"*)
+            return 0;;
+        *)
+            return 1;;
+    esac
+}
+
+# Join arguments with space
+joinargs() {
+    local IFS=" "
+    echo "$*"
+}
+
+# Percent-encode argument for inclusion in URL (RFC 3986)
+pctencode() {
+    local s="$1" t=""
+    local c d
+    local i n=${#s}
+    local LC_COLLATE=C 
+    for (( i = 0; i < n; i++ )); do
+        c="${s:i:1}"
+        case "$c" in
+            [a-zA-Z0-9.~_-])
+                d="$c";;
+            *) 
+                printf -v d '%%%02X' "'$c";;
+        esac
+        t+="$d"
+    done
+    echo "$t"
+}
+
+# Replace arguments macro in destination with actual arguments
+replacemacro() {
+    desthasmacro || return
+    local args
+    args=$(joinargs "${ARGS[@]}")
+    args=$(pctencode "$args")
+    DESTINATION=${DESTINATION/$ARGSMACRO/$args}
+}
+
+# Start file or URL via keyword
+do_start() {
+    readconfig
+    [ -z "$DESTINATION" ] && errorexit UNKNOWNKW "$KEYWORD"
+    replacemacro
+    [ "$QUIET" -eq 0 ] && echo "$DESTINATION"
+    [ "$DRYRUN" -eq 0 ] && "$STARTER" "$DESTINATION"
+}
+
+# View config file
+do_viewconfig() {
+    cat "$CONFIGFILE"
+}
+
+# Edit config file
+do_editconfig() {
+    local editor="${EDITOR:-editor}"
+    $editor "$CONFIGFILE"
+}
+
+# Show path of config file
+do_whichconfig() {
+    echo "$CONFIGFILE"
+}
+
+# Show a nice help message
+showhelp() {
+    cat <<"EOF"
+kwstart - quickly start a file or URL using a keyword
+
+Usage
+    kwstart [OPTION...] [KEYWORD] [ARGUMENT...]
+
+Description
+    The appropriate destination for the given keyword is read from the
+    config file, and then started, ie passed to a starter program, which is
+    responsible to open, view, or otherwise handle the passed destination. 
+    
+    Before the destionation is started, the special string {@}, called the
+    arguments macro, is replaced with a percent encoded string consisting
+    of passed arguments concatenated with spaces. Of course, this is
+    supposed to be useful only with URLs, not files.
+
+    This program is inspired by Mozilla's custom/smart keywords feature.
+
+Options
+    -s, --starter FILE      Use specified starter
+    -c, --config FILE       Set config file
+    -v, --view-config       View config file
+    -e, --edit-config       Edit config file
+    -w, --which-config      Show path of config file
+    -n, --dry-run           Do not start destination
+    -q, --quiet             Do not print destionation 
+    -f, --args-from FILE    Read arguments from file
+
+Examples
+    # Add a couple of keywords
+    echo 'g "https://www.google.com/search?q={@}"' >> $(kwstart -w)
+    echo 'f /home/user/some/dir/some-file.pdf' >> $(kwstart -w)
+
+    # Use keywords
+    kwstart g hello world
+    kwstart f
+    echo -e "something to\n search \t for" | kwstart g
+EOF
+}
+
+# Command line processing
+TEMP=$(getopt \
+        -l help,starter:,config:,view-config,edit-config,which-config,dry-run,args-from:,quiet \
+        -o hs:c:vewnf:q \
+        -- "$@") || errorexit INVOPT
+eval set -- "$TEMP"
+
+while true; do
+    case "$1" in
+        -h|--help)
+            showhelp
+            exit;;
+        -s|--starter)
+            STARTER="$2"
+            shift 2;;
+        -c|--config)
+            CONFIGFILE="$2"
+            shift 2;;
+        -v|--view-config)
+            MODE="view-config"
+            shift;;
+        -e|--edit-config)
+            MODE="edit-config"
+            shift;;
+        -w|--which-config)
+            MODE="which-config"
+            shift;;
+        -n|--dry-run)
+            DRYRUN=1
+            shift;;
+        -q|--quiet)
+            QUIET=1
+            shift;;
+        -f|--args-from)
+            [ -f "$2" ] || errorexit NOTFILE "$2"
+            addlist "$2"
+            shift 2;;
+        --)
+            shift
+            break;;
+        -*)
+            errorexit UNPROCOPT;;
+    esac
+done
+
+# Check that mode is not something unexpected
+inlist "$MODE" $ALLOWEDMODES || errorexit NOMODE
+
+# If mode is start, we need a keyword
+if [ "$MODE" = "start" ]; then 
+    [ -z "$1" ] && errorexit MISSKW
+    KEYWORD="$1"
+    shift
+
+    # Add arguments from redirection or pipe
+    [ ! -t 0 ] && addlist "-"
+
+    # Add arguments from command line
+    addargs "$@"
+fi
+
+# Check that config file exists if mode requires so
+if ! inlist "$MODE" edit-config which-config; then
+    [ -f "$CONFIGFILE" ] || errorexit NOTFILE "$CONFIGFILE"
+fi
+
+# Call appropriate function
+do_${MODE//-/}
+
