@@ -80,16 +80,24 @@ joinargs() {
 # Percent-encode argument for inclusion in URL (RFC 3986)
 pctencode() {
     local s="$1" t=""
-    local c d
+    local c d c0 d0
     local i n=${#s}
     local LC_COLLATE=C 
     for (( i = 0; i < n; i++ )); do
         c="${s:i:1}"
         case "$c" in
             [a-zA-Z0-9.~_-])
-                d="$c";;
-            *) 
-                printf -v d '%%%02X' "'$c";;
+                d="$c"
+                ;;
+            "$c0")
+                d="$d0"
+                ;;
+            *)
+                # printf -v d '%%%02X' "'$c";; # Does not work for wide characters
+                printf -v d '%%%s' $(printf "$c" | xxd -p -c1)
+                c0="$c"
+                d0="$d"
+                ;;
         esac
         t+="$d"
     done
