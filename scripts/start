@@ -290,6 +290,18 @@ start - a file and URL starter/launcher
 Usage
     start [OPTION...] [FILE...] [URL...]
 
+Description
+    Every file or URL given on the command line is opened with a chosen
+    program, according to user specified rules given in the config file.
+
+    The rules in the config file consist of type and use conditions. Type
+    conditions determine the argument (file or URL) type by using regex
+    matching on the argument itself or its attributes, such as extension,
+    basename, path or MIME type. Use conditions are for choosing a program
+    depending on the argument type and starting mode.
+
+    See the example config file for more details.
+
 Options
     -c, --config FILE   Set config file
     -m, --mode MODE     Set starting mode

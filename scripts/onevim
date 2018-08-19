@@ -49,6 +49,13 @@ onevim - edit files using only one Vim instance
 Usage
     onevim [OPTION...] [FILE...]
 
+Description
+    This scripts starts or connects to an already started Vim server.
+
+    Files for editing can be given on the command line, passed through
+    stdin (one file per line), or read from a file (also one file per
+    line). 
+
 Options
     -l, --list FILE     Read files to edit from file
     -c, --console, --no-gui 
