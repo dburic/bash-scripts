@@ -27,13 +27,13 @@ addfile() {
 addlist() {
     local list="$1"
     local f
-    while read -r f; do
+    while read -r f || [ -n "$f" ]; do
         case "$f" in
             ""|"#"*)
                 continue;;
         esac
         addfile "$f"
-    done < <(perl -pe 's{^\s*}{}; s{\s*$}{\n};' "$list")
+    done < <(cat "$list")
 }
 
 # Add multiple files passed as arguments
