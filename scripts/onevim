@@ -8,7 +8,7 @@ CONSOLEVIM="/usr/bin/vim"
 GUIVIM="/usr/bin/gvim"
 [ -n "$DISPLAY" ] && VIM="$GUIVIM" || VIM="$CONSOLEVIM"
 SERVERNAME="ONEVIM"
-FILES="" # Cumulative list of files to edit
+FILES=() # Cumulative list of files to edit
 
 # Is the server started?
 serverstarted() {
@@ -17,16 +17,20 @@ serverstarted() {
 
 # Add a single file to the cumulative list
 addfile() {
-    local f="$1"
-    f=${f//\'/\'\\\'\'} # Replace ' with '\''
-    [ -z "$FILES" ] && FILES="'$f'" || FILES+=" '$f'"
+    FILES+=("$1")
+}
+
+# Add multiple files passed as arguments
+addfiles() {
+    for f; do 
+        addfile "$f"
+    done
 }
 
 # Add multiple files from list; leading and trailing whitespace is
 # stripped, empty lines and lines beginning with # are ignored
 addlist() {
-    local list="$1"
-    local f
+    local list="$1" f
     while read -r f || [ -n "$f" ]; do
         case "$f" in
             ""|"#"*)
@@ -36,12 +40,6 @@ addlist() {
     done < <(cat "$list")
 }
 
-# Add multiple files passed as arguments
-addargs() {
-    for f in "$@"; do 
-        addfile "$f"
-    done
-}
 
 # Show a nice help message
 showhelp() {
@@ -95,16 +93,15 @@ done
 # Redirection or pipe?
 if [ ! -t 0 ]; then
     addlist "-" # Add files from stdin
-    exec </dev/tty # Reattach stdin to controlling terminal; otherwise
-                   # Vim could give a warning that 'Input is not from a
-                   # terminal'
+    exec </dev/tty # Reattach stdin to controlling terminal - otherwise
+                   # Vim could give warning that 'Input is not from a terminal'
 fi
 
 # Add files from command line
-addargs "$@"
+addfiles "$@"
 
 # Here we go...
-eval set -- "$FILES"
+eval set -- "${FILES[@]}"
 if [ -z "$1" ]; then
     if ! serverstarted; then
         $VIM --servername $SERVERNAME
