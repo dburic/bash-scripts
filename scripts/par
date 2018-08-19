@@ -27,25 +27,56 @@ par - wrapper around xargs for easy execution of parallel jobs
 Usage
     par [OPTION...] [-- COMMAND [ARG...]]
 
+Description
+    There are two intended use cases for this script, in which the user can
+    save a couple of keystrokes over using xargs directly.
+    
+    In the first case, arguments are read from stdin, one per line, and are
+    passed to the specified command, one or more at a time, as specified by
+    the --max-args option.
+
+    In the seconds case, whole commands are read from stdin, one per line,
+    and are passed to the user's preferred shell. This makes it possible to
+    use piping and redirection.
+
 Options
     -P, --max-procs NUM     Max number of processes to run in parallel
+                            (default is number of processors in /proc/cpuinfo)
     -n, --max-args NUM      Max number of arguments per command
+                            (default is 1)
     -N, --nice NUM          Adjust niceness
     -v, --verbose           Print each executed command
-    -s, --shell             Pass the command to bash - needed with pipes
-                            and redirects
+    -s, --shell             Pass the command to user's preferred shell
+                            (needed with pipes and redirects)
 
 Examples
+    # The following examples also show how xargs is called, assuming that
+    # the variable P holds the number of processors, ie 
+    #
+    #     P=$(grep -c '^processor\b' /proc/cpuinfo)
+
+    # Encode WAV files with oggenc
     ls *.wav | par -v -- oggenc -Q -q 3.5
 
+             # ^^^^^^^^^^^^^^^^^^^^^^^^^^
+             # xargs -d '\n' -n 1 -P $P -t oggenc -Q -q 3.5
+
+    # Encode WAV files with lame
     for f in *.wav; do
         echo "$f"
-        echo "${f%.*}.mp3"
+        echo "mp3/${f%.*}.mp3"
     done | par -v -n 2 -- lame --quiet --preset extreme
 
+         # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         # xargs -d '\n' -n 2 -P $P -t lame --quiet --preset extreme
+
+    # Convert PBM files to TIFF
     for f in *.pbm; do
         echo "pnmtotiff -g4 '$f' > 'out/${f%.*}.tif'" 
     done | par -v -N 10 -P 4 -s
+        
+         # ^^^^^^^^^^^^^^^^^^^^
+         # nice -n 10 xargs -d '\n' -n 1 -P 4 -t $SHELL -c
 EOF
 }
 
@@ -88,11 +119,13 @@ while true; do
 done
 
 # Main logic
-XARGS="nice -n $NICEADJ xargs -d \n -n $MAXARGS -P $MAXPROCS"
+XARGS="xargs -d \n -n $MAXARGS -P $MAXPROCS"
 [ $VERBOSE -ne 0 ] && XARGS+=" -t"
+[ $NICEADJ -gt 0 ] && XARGS="nice -n $NICEADJ $XARGS"
 
 if [ $USESHELL -ne 0 ]; then
     $XARGS $SHELL -c
 else
     $XARGS "$@"
 fi
+
