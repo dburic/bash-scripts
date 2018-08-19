@@ -61,8 +61,10 @@ specified in the `CONFIGDIR` variable (see above).
 
 Examples of config files can be found in the `doc` directory.
 
-Documentation and help
+Usage
 ------------------------------
 
-Each script has a `--help` switch, which will print a help page.
+Each script has a `--help` switch, which will print a help message with a
+summary of the purpose of the script, a usage statement, a more elaborate
+description, a list of available options, and some examples.
 
