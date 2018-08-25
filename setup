@@ -1,0 +1,209 @@
+#!/bin/bash
+
+BASEDIR=$(cd "${BASH_SOURCE[0]%/*}"; pwd)
+LIBDIR="$(dirname "$(readlink -f "$0")")/lib"
+COMMONLIB="$LIBDIR/common.sh"
+if ! source "$COMMONLIB" 2>/dev/null; then
+    echo "error: failed to load $COMMONLIB" >&2
+    exit 2
+fi
+
+PREFIX="$HOME" # Install prefix
+SCRIPTS=() # Scripts to process
+INCLUDES=("head.sh") # Included files
+COMMAND="" # Command to execute
+
+adderrormsgs \
+    MISSCMD "missing command" \
+    UNKNOWNCMD "unknown command %s" \
+    INSTALL "cannot install %s"
+
+# Fill SCRIPTS with scripts to process
+setscripts() {
+    local f
+    if [ -z "$1" ]; then
+        while read f; do
+            SCRIPTS+=("$f")
+        done < <(find scripts -type f)
+    else 
+        for f; do 
+            SCRIPTS+=("$f")
+        done
+    fi
+}
+
+# Name of function implementing command $1
+cmdfunc() {
+    echo "do_$1"
+}
+
+# Is $1 an implemented command
+iscmd() {
+    local f=$(cmdfunc "$1")
+    isfunction "$f"
+}
+
+# Do command $1
+docmd() {
+    (
+    cd "$BASEDIR"
+    $(cmdfunc "$1")
+    )
+}
+
+# Log a message
+log() {
+    echo "$@"
+}
+
+# Is $1 older than any of $2, $3, ...
+isolder() {
+    local f="$1"
+    [ -f "$f" ] || return 0
+    shift
+    local g
+    for g; do
+        [ -f "$g" ] || continue
+        [ "$f" -ot "$g" ] && return 0
+    done
+    return 1
+}
+
+# Return file to include
+filetoinclude() {
+    local l="$1"
+    local h=${l#\#\#include }
+    echo "$h"
+}
+
+# Process include directives
+procincludes() {
+    local f="$1" # in
+    local g="$2" # out
+    local h l
+    while IFS="" read -r l || [ -n "$l" ]; do
+        case "$l" in
+            "##include "*)
+                h=$(filetoinclude "$l")
+                cat "$h"
+                ;;
+            *)
+                echo "$l"
+                ;;
+        esac
+    done <"$f" >"$g"
+}
+
+makedir() {
+    mkdir -p "$1" 2>/dev/null || errorexit MKDIR "$1"
+}
+
+prepare1() {
+    local f="$1"
+    local g="bin/${f##*/}"
+    isolder "$g" "$f" "${INCLUDES[@]}" || return 
+    log "prepare: $f"
+    makedir bin
+    procincludes "$f" "$g" || errorexit MKFILE "$g"
+    chmod +x "$g"
+}
+
+do_prepare() {
+    local f
+    for f in "${SCRIPTS[@]}"; do
+        prepare1 "$f"
+    done
+}
+
+do_install() {
+    do_prepare
+    local bindir="$PREFIX/bin"
+    local libdir="$PREFIX/lib/bash"
+    local f g d
+    makedir "$bindir"
+    for f in "${SCRIPTS[@]}"; do
+        g="bin/${f##*/}"
+        log "install: $f"
+        install -m 755 "$g" "$bindir" || errorexit INSTALL "$f"
+    done
+    while read f; do
+        d=${f%/*}; d=${d#lib}; d="$libdir$d"
+        makedir "$d"
+        log "install: $f"
+        install -m 644 "$f" "$d" || errorexit INSTALL "$f"
+    done < <(find lib -type f)
+}
+
+do_clean() {
+    rm -rf bin
+}
+
+showhelp() {
+    cat <<"EOF"
+setup - shell scripts setup/installation tool
+
+Usage
+    setup [OPTION...] COMMAND
+
+Description
+    The following commands are supported: 
+
+        prepare
+            prepare files for installation
+
+        install
+            install files
+
+        clear
+            clear prepared files 
+
+Options
+    -p, --prefix DIR        Set prefix (default is $HOME)
+
+Examples
+    # Install to $HOME
+    ./setup install
+
+    # Install to /usr/local - first in head.sh replace
+    #     LIBDIR="$HOME/lib/bash"
+    # with
+    #     LIBDIR="/usr/local/lib/bash"
+    ./setup prepare
+    sudo ./setup --prefix=/usr/local install
+EOF
+}
+
+TEMP=$(getopt \
+        -l help,prefix: \
+        -o p: \
+        -- "$@") || errorexit INVOPT
+eval set -- "$TEMP"
+
+while true; do
+    case "$1" in
+        -h|--help)
+            showhelp
+            exit 0;;
+        -p|--prefix)
+            PREFIX="$2"
+            shift 2;;
+        --)
+            shift
+            break;;
+        -*)
+            errorexit UNPROCOPT;;
+    esac
+done
+
+[ -z "$1" ] && errorexit MISSCMD
+iscmd "$1" || errorexit UNKNOWNCMD "$1"
+COMMAND="$1"
+shift
+
+if [ "$COMMAND" = "install" ]; then
+    [ -z "$PREFIX" ] && errorexit MISSOPT '--prefix'
+fi
+
+setscripts "$@"
+docmd "$COMMAND" && log "done"
+
