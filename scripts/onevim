@@ -10,9 +10,14 @@ GUIVIM="/usr/bin/gvim"
 SERVERNAME="ONEVIM"
 FILES=() # Cumulative list of files to edit
 
+# Start/call Vim
+startvim() {
+    "$VIM" "$@"
+}
+
 # Is the server started?
 serverstarted() {
-    $VIM --serverlist | grep -q "^$SERVERNAME$"
+    startvim --serverlist | grep -q "^$SERVERNAME$"
 }
 
 # Add a single file to the cumulative list
@@ -111,9 +116,9 @@ addfiles "$@"
 eval set -- "${FILES[@]}"
 if [ -z "$1" ]; then
     if ! serverstarted; then
-        $VIM --servername $SERVERNAME
+        startvim --servername $SERVERNAME
     fi
 else
-    $VIM --servername $SERVERNAME --remote-silent "$@"
+    startvim --servername $SERVERNAME --remote-silent "$@"
 fi
 
