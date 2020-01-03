@@ -258,12 +258,12 @@ startone() {
         return 1
     fi
     if ! isset FILE_TYPE; then
-        warn "unknown type for file $f"
+        warn "unknown type for argument $f"
         return 1
     fi
     setprogram
     if ! isset PROGRAM; then
-        warn "cannot find program for file $f of type $FILE_TYPE"
+        warn "cannot find program for argument $f of type $FILE_TYPE"
         return 1
     fi
     startprogram    
