@@ -113,7 +113,7 @@ fi
 addfiles "$@"
 
 # Here we go...
-eval set -- "${FILES[@]}"
+set -- "${FILES[@]}"
 if [ -z "$1" ]; then
     if ! serverstarted; then
         startvim --servername $SERVERNAME
