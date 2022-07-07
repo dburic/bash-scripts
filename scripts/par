@@ -18,8 +18,8 @@ cpucount() {
 MAXPROCS=$(cpucount)
 MAXARGS=1
 NICEADJ=0
-VERBOSE=0
-USESHELL=0
+VERBOSE=false
+USESHELL=false
 
 # Show a nice help message
 showhelp() {
@@ -107,10 +107,10 @@ while true; do
             NICEADJ=$2
             shift 2;;
         -v|--verbose)
-            VERBOSE=1
+            VERBOSE=true
             shift;;
         -s|--shell)
-            USESHELL=1
+            USESHELL=true
             shift;;
         --)
             shift
@@ -122,10 +122,10 @@ done
 
 # Main logic
 XARGS="xargs -d \n -n $MAXARGS -P $MAXPROCS"
-[ $VERBOSE -ne 0 ] && XARGS+=" -t"
+$VERBOSE && XARGS+=" -t"
 [ $NICEADJ -gt 0 ] && XARGS="nice -n $NICEADJ $XARGS"
 
-if [ $USESHELL -ne 0 ]; then
+if $USESHELL; then
     $XARGS $SHELL -c
 else
     $XARGS "$@"

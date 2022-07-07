@@ -9,8 +9,8 @@ MODE="start" # Default mode
 ALLOWEDMODES="start view-config edit-config which-config"
 KEYWORD="" # Keyword from command line
 DESTINATION="" # Destination from config file
-DRYRUN=0 # Do not start the destionation, only print it
-QUIET=0 # Do not print the destionation
+DRYRUN=false # Do not start the destionation, only print it
+QUIET=false # Do not print the destionation
 STARTER="start" # Default starter
 ARGSMACRO="{@}" # Arguments macro
 ARGS=() # Array of arguments from command line
@@ -118,8 +118,8 @@ do_start() {
     readconfig
     [ -z "$DESTINATION" ] && errorexit UNKNOWNKW "$KEYWORD"
     replacemacro
-    [ "$QUIET" -eq 0 ] && echo "$DESTINATION"
-    [ "$DRYRUN" -eq 0 ] && "$STARTER" "$DESTINATION"
+    "$QUIET" || echo "$DESTINATION"
+    "$DRYRUN" || "$STARTER" "$DESTINATION"
 }
 
 # View config file
@@ -208,10 +208,10 @@ while true; do
             MODE="which-config"
             shift;;
         -n|--dry-run)
-            DRYRUN=1
+            DRYRUN=true
             shift;;
         -q|--quiet)
-            QUIET=1
+            QUIET=true
             shift;;
         -f|--args-from)
             [ -f "$2" ] || errorexit NOTFILE "$2"

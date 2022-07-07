@@ -20,7 +20,7 @@ adderrormsgs \
 # Functions that set file properties
 
 set_EXISTS() {
-    [ -e "$FILE" ] && FILE_EXISTS=1 || FILE_EXISTS=0
+    [ -e "$FILE" ] && FILE_EXISTS=true || FILE_EXISTS=false
 }
 
 set_NAME() {
@@ -97,7 +97,7 @@ eval_typecond() {
         echo "$FILE" | $GREP "$re" && FILE_TYPE="$t"
     else 
         needs EXISTS
-        [ "$FILE_EXISTS" -eq 0 ] && return
+        ! $FILE_EXISTS && return
         needs "$p"
         local v="FILE_$p" # Variable
         echo "${!v}" | $GREP "$re" && FILE_TYPE="$t"
@@ -221,7 +221,7 @@ settype() {
     for c in "${TYPECONDS[@]}"; do
         eval set -- "$c"
         "$@"
-        [ -n "$FILE_EXISTS" ] && [ "$FILE_EXISTS" -eq 0 ] && break
+        isset FILE_EXISTS && ! $FILE_EXISTS && break
         isset FILE_TYPE && break
     done
 }
@@ -253,7 +253,7 @@ startone() {
     local f="$1"
     resetproperties "$f"
     settype
-    if [ -n "$FILE_EXISTS" ] && [ "$FILE_EXISTS" -eq 0 ]; then
+    if isset FILE_EXISTS && ! $FILE_EXISTS; then
         warn "file does not exist $f"
         return 1
     fi

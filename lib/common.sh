@@ -4,12 +4,12 @@
 PROGNAME=$(basename "$0")
 REALPATH=$(realpath "$0")
 
-# Should messages begin with the program's name? 0 = false, everything else = true
-PRINTNAME=0
+# Should messages begin with the program's name?
+PRINTNAME=false
 
 # Print a message to stderr
 printmsg() {
-    [ "$PRINTNAME" -ne 0 ] && echo -n "$PROGNAME: " >&2
+    $PRINTNAME && echo -n "$PROGNAME: " >&2
     echo "$1" >&2
 }
 

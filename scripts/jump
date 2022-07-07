@@ -12,7 +12,7 @@ SAVEFILE="" # File where $JUMPDIR should be saved
 MODE="jump" # What to do
 ALLOWEDMODES="jump view-config edit-config which-config" # What can be done
 GREP="grep -i -m 1" # How to call grep
-MATCHANYWHERE=0 # Match anywhere, not only at beginning
+MATCHANYWHERE=false # Match anywhere, not only at beginning
 
 # Additional error messages
 adderrormsgs \
@@ -56,7 +56,7 @@ whichconfig() {
 # Return regex pattern for grep
 greppattern() {
     local pat=""
-    [ $MATCHANYWHERE -eq 0 ] && pat="^$1" || pat="$1"
+    $MATCHANYWHERE && pat="$1" || pat="^$1"
     echo "$pat"
 }
 
@@ -192,7 +192,7 @@ while true; do
             MODE="which-config"
             shift;;
         -a|--anywhere)
-            MATCHANYWHERE=1
+            MATCHANYWHERE=true
             shift;;
         --)
             shift

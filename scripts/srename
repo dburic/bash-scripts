@@ -11,9 +11,9 @@ trap "errorexit SIGINT"  INT
 FORMAT=""
 START=1
 STEP=1
-VERBOSE=0
-DRYRUN=0
-NULLTERM=0
+VERBOSE=false
+DRYRUN=false
+NULLTERM=false
 OLDNAMES=()
 NEWNAMES=()
 NRNAMES=0
@@ -45,8 +45,9 @@ namesfromargs() {
 
 # Read names from stdin
 namesfromstdin() {
+    local nullterm="$1"
     local d n
-    [ "$1" -eq 0 ] && d=$'\n' || d=$'\0'
+    $nullterm && d='' || d=$'\n'
     while IFS='' read -d "$d" -r n || [ -n "$n" ]; do 
         addnames "$n"
     done
@@ -85,7 +86,7 @@ checkexist() {
 # File does not need to be renamed
 needsnorenaming() {
     local n="$1"
-    [ $VERBOSE -ne 0 ] && echo "$n --> $n (not changed)"
+    $VERBOSE && echo "$n --> $n (not changed)"
 }
 
 # Make a temporary name - 2nd method
@@ -97,7 +98,7 @@ mktempname2() {
     tn=$(tempfile -d "$d" -p "${b:0:4}_" -s ".tmp" 2>/dev/null)
     if [ $? -eq 0 ]; then
         echo "${tn#./}"
-        [ $DRYRUN -ne 0 ] && rm "$tn"
+        $DRYRUN && rm "$tn"
     else 
         return 1
     fi
@@ -122,10 +123,10 @@ mktempname() {
 # Rename a single file
 renamefile() {
     local on="$1" nn="$2"
-    if [ $DRYRUN -eq 0 ]; then 
+    if ! $DRYRUN; then 
         mv -- "$on" "$nn" || warn "cannot rename $on to $nn"
     fi
-    [ $VERBOSE -ne 0 ] && echo "$on --> $nn"
+    $VERBOSE && echo "$on --> $nn"
 }
 
 # Report that file does not exist
@@ -223,13 +224,13 @@ while true; do
             STEP=$2
             shift 2;;
         -v|--verbose)
-            VERBOSE=1
+            VERBOSE=true
             shift;;
         -n|--dry-run)
-            DRYRUN=1
+            DRYRUN=true
             shift;;
         -0|--null)
-            NULLTERM=1
+            NULLTERM=true
             shift;;
         --)
             shift
