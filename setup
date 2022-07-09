@@ -95,7 +95,7 @@ procincludes() {
 }
 
 makedir() {
-    mkdir -p "$1" 2>/dev/null || errorexit MKDIR "$1"
+    mkdir -p "$1" 2>/dev/null || die MKDIR "$1"
 }
 
 prepare1() {
@@ -104,7 +104,7 @@ prepare1() {
     isolder "$g" "$f" "${INCLUDES[@]}" || return 
     log "prepare: $f"
     makedir bin
-    procincludes "$f" "$g" || errorexit MKFILE "$g"
+    procincludes "$f" "$g" || die MKFILE "$g"
     chmod +x "$g"
 }
 
@@ -124,13 +124,13 @@ do_install() {
     for f in "${SCRIPTS[@]}"; do
         g="bin/${f##*/}"
         log "install: $f"
-        install -m 755 "$g" "$bindir" || errorexit INSTALL "$f"
+        install -m 755 "$g" "$bindir" || die INSTALL "$f"
     done
     while read f; do
         d=${f%/*}; d=${d#lib}; d="$libdir$d"
         makedir "$d"
         log "install: $f"
-        install -m 644 "$f" "$d" || errorexit INSTALL "$f"
+        install -m 644 "$f" "$d" || die INSTALL "$f"
     done < <(find lib -type f)
 }
 
@@ -176,7 +176,7 @@ EOF
 TEMP=$(getopt \
         -l help,prefix: \
         -o p: \
-        -- "$@") || errorexit INVOPT
+        -- "$@") || die INVOPT
 eval set -- "$TEMP"
 
 while true; do
@@ -191,17 +191,17 @@ while true; do
             shift
             break;;
         -*)
-            errorexit UNPROCOPT;;
+            die UNPROCOPT;;
     esac
 done
 
-[ -z "$1" ] && errorexit MISSCMD
-iscmd "$1" || errorexit UNKNOWNCMD "$1"
+[ -z "$1" ] && die MISSCMD
+iscmd "$1" || die UNKNOWNCMD "$1"
 COMMAND="$1"
 shift
 
 if [ "$COMMAND" = "install" ]; then
-    [ -z "$PREFIX" ] && errorexit MISSOPT '--prefix'
+    [ -z "$PREFIX" ] && die MISSOPT '--prefix'
 fi
 
 setscripts "$@"

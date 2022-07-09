@@ -116,7 +116,7 @@ replacemacro() {
 # Start file or URL via keyword
 do_start() {
     readconfig
-    [ -z "$DESTINATION" ] && errorexit UNKNOWNKW "$KEYWORD"
+    [ -z "$DESTINATION" ] && die UNKNOWNKW "$KEYWORD"
     replacemacro
     "$QUIET" || echo "$DESTINATION"
     "$DRYRUN" || "$STARTER" "$DESTINATION"
@@ -184,7 +184,7 @@ EOF
 TEMP=$(getopt \
         -l help,starter:,config:,view-config,edit-config,which-config,dry-run,args-from:,quiet \
         -o hs:c:vewnf:q \
-        -- "$@") || errorexit INVOPT
+        -- "$@") || die INVOPT
 eval set -- "$TEMP"
 
 while true; do
@@ -214,23 +214,23 @@ while true; do
             QUIET=true
             shift;;
         -f|--args-from)
-            [ -f "$2" ] || errorexit NOTFILE "$2"
+            [ -f "$2" ] || die NOTFILE "$2"
             addlist "$2"
             shift 2;;
         --)
             shift
             break;;
         -*)
-            errorexit UNPROCOPT;;
+            die UNPROCOPT;;
     esac
 done
 
 # Check that mode is not something unexpected
-inlist "$MODE" $ALLOWEDMODES || errorexit NOMODE
+inlist "$MODE" $ALLOWEDMODES || die NOMODE
 
 # If mode is start, we need a keyword
 if [ "$MODE" = "start" ]; then 
-    [ -z "$1" ] && errorexit MISSKW
+    [ -z "$1" ] && die MISSKW
     KEYWORD="$1"
     shift
 
@@ -243,7 +243,7 @@ fi
 
 # Check that config file exists if mode requires so
 if ! inlist "$MODE" edit-config which-config; then
-    [ -f "$CONFIGFILE" ] || errorexit NOTFILE "$CONFIGFILE"
+    [ -f "$CONFIGFILE" ] || die NOTFILE "$CONFIGFILE"
 fi
 
 # Call appropriate function

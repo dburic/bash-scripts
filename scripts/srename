@@ -4,8 +4,8 @@
 sourcelib "common"
 
 # Set some traps
-trap "errorexit SIGTERM" TERM HUP
-trap "errorexit SIGINT"  INT
+trap "die SIGTERM" TERM HUP
+trap "die SIGINT"  INT
 
 # Defaults
 FORMAT=""
@@ -27,7 +27,7 @@ addnames() {
     if [ -n "$2" ]; then
         newname="$2"
     else
-        printf -v newname -- "$FORMAT" $COUNTER 2>/dev/null || errorexit OTHER 'cannot create new name'
+        printf -v newname -- "$FORMAT" $COUNTER 2>/dev/null || die OTHER 'cannot create new name'
         (( COUNTER += STEP ))
     fi
     OLDNAMES[$NRNAMES]="$oldname"
@@ -58,10 +58,10 @@ checkunique() {
     local nu
 
     nu=$(printf '%s\0' "${OLDNAMES[@]}" | sort -z -u | grep -z -c '^')
-    [ $nu -eq $NRNAMES ] || errorexit OTHER 'old names are not unique'
+    [ $nu -eq $NRNAMES ] || die OTHER 'old names are not unique'
 
     nu=$(printf '%s\0' "${NEWNAMES[@]}" | sort -z -u | grep -z -c '^')
-    [ $nu -eq $NRNAMES ] || errorexit OTHER 'new names are not unique'
+    [ $nu -eq $NRNAMES ] || die OTHER 'new names are not unique'
 }
 
 # Is passed argument an old name?
@@ -75,11 +75,11 @@ checkexist() {
     local n
 
     for n in "${OLDNAMES[@]}"; do
-        [ -e "$n" ] || errorexit NOTEXIST "$n" 
+        [ -e "$n" ] || die NOTEXIST "$n" 
     done
 
     for n in "${NEWNAMES[@]}"; do
-        [ -e "$n" ] && ! isoldname "$n" && errorexit OTHER "$n already exists but will not be renamed"
+        [ -e "$n" ] && ! isoldname "$n" && die OTHER "$n already exists but will not be renamed"
     done
 }
 
@@ -147,7 +147,7 @@ renameall() {
             needsnorenaming "$on"
         elif [ $i -lt $oldnr -a -e "$nn" ]; then
             # New name already exists - use temporary name
-            tn=$(mktempname "$on") || errorexit TEMPFILE
+            tn=$(mktempname "$on") || die TEMPFILE
             renamefile "$on" "$tn"
             addnames "$tn" "$nn"
         else
@@ -203,7 +203,7 @@ EOF
 TEMP=$(getopt \
         -l help,format:,start:,step:,verbose,dry-run,null \
         -o hf:s:p:vn0 \
-        -- "$@") || errorexit INVOPT
+        -- "$@") || die INVOPT
 eval set -- "$TEMP"
 
 while true; do
@@ -215,12 +215,12 @@ while true; do
             FORMAT="$2"
             shift 2;;
         -s|--start)
-            isint "$2" || errorexit INVVAL "$2"
+            isint "$2" || die INVVAL "$2"
             START=$2
             COUNTER=$START
             shift 2;;
         -p|--step)
-            isint "$2" && [ $2 -ne 0 ] || errorexit INVVAL "$2"
+            isint "$2" && [ $2 -ne 0 ] || die INVVAL "$2"
             STEP=$2
             shift 2;;
         -v|--verbose)
@@ -236,11 +236,11 @@ while true; do
             shift
             break;;
         -*)
-            errorexit UNPROCOPT;;
+            die UNPROCOPT;;
     esac
 done
 
-[ -n "$FORMAT" ] || errorexit MISSOPT "-f"
+[ -n "$FORMAT" ] || die MISSOPT "-f"
 
 # Create list of old and new names
 if [ -t 0 ]; then

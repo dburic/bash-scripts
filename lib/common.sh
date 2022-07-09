@@ -82,7 +82,7 @@ errormsg() {
 }
 
 # Exit due to error
-errorexit() {
+die() {
     local code="$1" msg
     shift
     printf -v msg "$(errormsg "$code")" "$@"

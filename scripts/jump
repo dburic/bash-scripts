@@ -108,7 +108,7 @@ setjumpdir() {
         else # Not first pass
             part=$(getsubdir "$dest" "$JUMPDIR")
         fi
-        [ -z "$part" ] && errorexit NODEST "$dest"
+        [ -z "$part" ] && die NODEST "$dest"
         addpart "$part"
     done
 }
@@ -168,7 +168,7 @@ EOF
 TEMP=$(getopt \
         -l help,save:,config:,view-config,edit-config,which-config,anywhere \
         -o hs:c:vewa \
-        -- "$@") || errorexit INVOPT
+        -- "$@") || die INVOPT
 eval set -- "$TEMP"
 
 while true; do
@@ -198,16 +198,16 @@ while true; do
             shift
             break;;
         -*)
-            errorexit UNPROCOPT;;
+            die UNPROCOPT;;
     esac
 done
 
 # Check that mode is not something unexpected
-inlist "$MODE" $ALLOWEDMODES || errorexit NOMODE
+inlist "$MODE" $ALLOWEDMODES || die NOMODE
 
 # Check that config file exists if mode requires so
 if ! inlist "$MODE" edit-config which-config; then
-    [ -f "$CONFIGFILE" ] || errorexit NOTFILE "$CONFIGFILE"
+    [ -f "$CONFIGFILE" ] || die NOTFILE "$CONFIGFILE"
 fi
 
 # If mode is not jump, call appropriate function
@@ -228,6 +228,6 @@ echo "$JUMPDIR"
 
 # Save...
 if [ -n "$SAVEFILE" ]; then
-    echo "$JUMPDIR" 2>/dev/null >"$SAVEFILE" || errorexit MKFILE "$SAVEFILE"
+    echo "$JUMPDIR" 2>/dev/null >"$SAVEFILE" || die MKFILE "$SAVEFILE"
 fi
 

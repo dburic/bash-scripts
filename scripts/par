@@ -4,8 +4,8 @@
 sourcelib "common"
 
 # Set some traps
-trap "errorexit SIGTERM" TERM HUP
-trap "errorexit SIGINT"  INT
+trap "die SIGTERM" TERM HUP
+trap "die SIGINT"  INT
 
 # How many CPUs do we have?
 cpucount() {
@@ -86,7 +86,7 @@ EOF
 TEMP=$(getopt \
         -l help,max-procs:,max-args:shell,verbose,nice: \
         -o hP:n:svN: \
-        -- "$@") || errorexit INVOPT
+        -- "$@") || die INVOPT
 eval set -- "$TEMP"
 
 while true; do
@@ -95,15 +95,15 @@ while true; do
             showhelp
             exit 0;;
         -P|--max-procs)
-            ispsint "$2" || errorexit INVVAL "$2"
+            ispsint "$2" || die INVVAL "$2"
             MAXPROCS=$2
             shift 2;;
         -n|--max-args)
-            ispsint "$2" || errorexit INVVAL "$2"
+            ispsint "$2" || die INVVAL "$2"
             MAXARGS=$2
             shift 2;;
         -N|--nice)
-            isnnint "$2" || errorexit INVVAL "$2"
+            isnnint "$2" || die INVVAL "$2"
             NICEADJ=$2
             shift 2;;
         -v|--verbose)
@@ -116,7 +116,7 @@ while true; do
             shift
             break;;
         -*)
-            errorexit UNPROCOPT;;
+            die UNPROCOPT;;
     esac
 done
 

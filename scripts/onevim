@@ -78,7 +78,7 @@ EOF
 TEMP=$(getopt \
         -l help,list:,console,no-gui\
         -o hl:c \
-        -- "$@") || errorexit INVOPT
+        -- "$@") || die INVOPT
 eval set -- "$TEMP"
 
 while true; do
@@ -98,7 +98,7 @@ while true; do
             shift
             break;;
         -*)
-            errorexit UNPROCOPT;;
+            die UNPROCOPT;;
     esac
 done
 

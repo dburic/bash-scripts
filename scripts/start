@@ -79,7 +79,7 @@ addtypecond() {
 # Process built-in type condition
 typecond() {
     local f="${FUNCNAME[1]}" # Calling function
-    minpars 2 "$@" || errorexit MINPARS "$f" 2 ${BASH_LINENO[1]}
+    minpars 2 "$@" || die MINPARS "$f" 2 ${BASH_LINENO[1]}
     addtypecond eval_$f "$@"
 }
 
@@ -149,7 +149,7 @@ addusecond() {
 
 # Process use condition
 use() {
-    minpars 2 "$@" || errorexit MINPARS "use" 2 ${BASH_LINENO[0]}
+    minpars 2 "$@" || die MINPARS "use" 2 ${BASH_LINENO[0]}
     local program="$1" types=() modes=() t
     shift
     # Process types
@@ -274,7 +274,7 @@ startall() {
 
 # Read configuration file
 readconfig() {
-    source "$CONFIGFILE" || errorexit RC "$CONFIGFILE"
+    source "$CONFIGFILE" || die RC "$CONFIGFILE"
 }
 
 # Show a nice help message
@@ -315,7 +315,7 @@ EOF
 TEMP=$(getopt \
         -l help,config:,mode:,type: \
         -o hc:m:t: \
-        -- "$@") || errorexit INVOPT
+        -- "$@") || die INVOPT
 eval set -- "$TEMP"
 
 while true; do
@@ -336,11 +336,11 @@ while true; do
             shift
             break;;
         -*)
-            errorexit UNPROCOPT;;
+            die UNPROCOPT;;
     esac
 done
 
-[ -f "$CONFIGFILE" ] || errorexit NOTFILE "$CONFIGFILE"
+[ -f "$CONFIGFILE" ] || die NOTFILE "$CONFIGFILE"
 readconfig
 
 startall "$@"
