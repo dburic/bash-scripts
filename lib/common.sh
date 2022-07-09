@@ -159,7 +159,7 @@ joinpaths() {
         [ -z "$p" ] && continue
         [ -n "$r" ] && r+="/$p" || r="$p"
     done
-    echo "$r" | perl -p -e 's{/+}{/}g'
+    echo "$r" | sed -e 's!/\+!/!g'
 }
 
 # Return extension of $1 if it has one, otherwise return nothing
