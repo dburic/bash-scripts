@@ -318,8 +318,8 @@ EOF
 
 # Command line processing
 TEMP=$(getopt \
-        -l help,mode:type: \
-        -o hm:t: \
+        -l help,config:,mode:,type: \
+        -o hc:m:t: \
         -- "$@") || errorexit INVOPT
 eval set -- "$TEMP"
 
