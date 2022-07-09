@@ -18,18 +18,13 @@ warn() {
     printmsg "warning: $1"
 }
 
-# Error handling routines
-
 # Array of error messages
-ERRORMSGS=()
+declare -A ERRORMSGS
 
 # Add error messages
 adderrormsgs() {
-    local code msg
     while [ $# -ge 2 ]; do
-        code=${1//\'/\'\\\'\'}
-        msg=${2//\'/\'\\\'\'}
-        ERRORMSGS+=("'$code' '$msg'") 
+        ERRORMSGS["$1"]="$2"
         shift 2
     done
     if [ $# -ne 0 ]; then
@@ -65,17 +60,25 @@ adderrormsgs \
     NOTMOUNTED '%s is not mounted' \
     OTHER      '%s'
 
+# Is $1 equal to one of $2, $3, $4, ...?
+inlist() {
+    local v0="$1"
+    local v
+    shift
+    for v; do 
+        [ "$v0" = "$v" ] && return 0
+    done
+    return 1
+}
+
 # Return error message given its code
 errormsg() {
-    local code="$1" e
-    for e in "${ERRORMSGS[@]}"; do
-        eval set -- "$e"
-        if [ "$1" = "$code" ]; then
-            echo "$2"
-            return
-        fi
-    done
-    echo "unknown error code $code"
+    local code="$1"
+    if inlist "$code" "${!ERRORMSGS[@]}"; then
+        echo "${ERRORMSGS["$code"]}"
+    else 
+        echo "unknown error code $code"
+    fi
 }
 
 # Exit due to error
@@ -89,9 +92,7 @@ errorexit() {
 
 # This should probably be redefined
 showhelp() {
-    cat <<EOF
-Use the source, Luke! ;)
-EOF
+    echo "Use the source, Luke! ;)"
 }
 
 # Is $1 an integer?
@@ -122,17 +123,6 @@ isnnfloat() {
 # Positive float?
 ispsfloat() {
     isfloat "$1" && (printf "%e" "$1" | grep -q '^[1-9]')
-}
-
-# Is $1 equal to one of $2, $3, $4, ...?
-inlist() {
-    local v0="$1"
-    local v
-    shift
-    for v; do 
-        [ "$v0" = "$v" ] && return 0
-    done
-    return 1
 }
 
 # Check that argument is in the NUMBER[SUFFIX] format that can be passed to
