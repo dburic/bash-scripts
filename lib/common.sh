@@ -42,12 +42,12 @@ adderrormsgs \
     UNPROCOPT  'oops, unprocessed option %s' \
     INVVAL     'invalid value %s' \
     MISSVAL    'option %s requires a value' \
-    MISSARG    'missing required argument' \
     INVARG     'invalid argument %s' \
+    MISSARG    'missing required argument' \
     NODO       'nothing to do' \
     RC         'error in config file %s' \
     CHILD      '%s exited with non-zero status' \
-    EXISTS     '%s already exists' \
+    EXIST      '%s already exists' \
     NOTEXIST   '%s does not exist' \
     NOTFILE    '%s does not exist or is not a regular file' \
     NOTDIR     '%s is not a directory' \
@@ -57,8 +57,7 @@ adderrormsgs \
     RMFILE     'cannot remove file %s' \
     RMDIR      'cannot remove directory %s' \
     MOUNTED    '%s is already mounted' \
-    NOTMOUNTED '%s is not mounted' \
-    OTHER      '%s'
+    NOTMOUNTED '%s is not mounted'
 
 # Is $1 equal to one of $2, $3, $4, ...?
 inlist() {
@@ -83,9 +82,14 @@ errormsg() {
 
 # Exit due to error
 die() {
-    local code="$1" msg
-    shift
-    printf -v msg "$(errormsg "$code")" "$@"
+    local msg 
+    if [[ "$1" =~ [A-Z][A-Z0-9_]* ]]; then # Look for predefined error msg
+        local code="$1"
+        shift
+        printf -v msg "$(errormsg "$code")" "$@"
+    else 
+        msg="$1" 
+    fi
     printmsg "error: $msg"
     exit 1
 }

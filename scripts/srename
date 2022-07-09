@@ -27,7 +27,7 @@ addnames() {
     if [ -n "$2" ]; then
         newname="$2"
     else
-        printf -v newname -- "$FORMAT" $COUNTER 2>/dev/null || die OTHER 'cannot create new name'
+        printf -v newname -- "$FORMAT" $COUNTER 2>/dev/null || die 'cannot create new name'
         (( COUNTER += STEP ))
     fi
     OLDNAMES[$NRNAMES]="$oldname"
@@ -58,10 +58,10 @@ checkunique() {
     local nu
 
     nu=$(printf '%s\0' "${OLDNAMES[@]}" | sort -z -u | grep -z -c '^')
-    [ $nu -eq $NRNAMES ] || die OTHER 'old names are not unique'
+    [ $nu -eq $NRNAMES ] || die 'old names are not unique'
 
     nu=$(printf '%s\0' "${NEWNAMES[@]}" | sort -z -u | grep -z -c '^')
-    [ $nu -eq $NRNAMES ] || die OTHER 'new names are not unique'
+    [ $nu -eq $NRNAMES ] || die 'new names are not unique'
 }
 
 # Is passed argument an old name?
@@ -79,7 +79,7 @@ checkexist() {
     done
 
     for n in "${NEWNAMES[@]}"; do
-        [ -e "$n" ] && ! isoldname "$n" && die OTHER "$n already exists but will not be renamed"
+        [ -e "$n" ] && ! isoldname "$n" && die "$n already exists but will not be renamed"
     done
 }
 
