@@ -1,5 +1,5 @@
 LIBDIR="$HOME/lib/bash"
-CONFIGDIR="$HOME/.scripts"
+CONFIGDIR="$HOME/.config/scripts"
 
 sourcelib() {
     if ! source "$LIBDIR/$1.sh" 2>/dev/null; then

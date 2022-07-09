@@ -31,7 +31,7 @@ Choose an installation directory, say `/usr/local`, and modify the variable
 `LIBDIR` in `head.sh` so that it points to `/usr/local/lib/bash`. 
 
 The variable `CONFIGDIR`, also in `head.sh`, contains the directory where
-config files are kept. The default `$HOME/.scripts` can be changed to
+config files are kept. The default `$HOME/.config/scripts` can be changed to
 any other directory.
 
 Now execute the included setup script:
@@ -40,7 +40,7 @@ Now execute the included setup script:
     sudo ./setup --prefix=/usr/local install
 
 If you have chosen `$HOME` as your installation directory and
-`$HOME/.scripts` as your config directory, then you don't have to edit
+`$HOME/.config/scripts` as your config directory, then you don't have to edit
 `head.sh`, just execute the setup script:
 
     ./setup install
