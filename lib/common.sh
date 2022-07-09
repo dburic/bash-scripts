@@ -95,6 +95,11 @@ showhelp() {
     echo "Use the source, Luke! ;)"
 }
 
+# Is variable $1 set?
+isset() {
+    declare -p "$1" >/dev/null 2>&1
+}
+
 # Is $1 an integer?
 isint() {
     printf "%d" "$1" >/dev/null 2>&1
