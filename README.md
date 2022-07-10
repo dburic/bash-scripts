@@ -14,6 +14,7 @@ details.
 List of scripts
 ------------------------------
 
+- add       - add files to a project 
 - jump      - quickly jump to a directory
 - kwstart   - quickly start a file or URL via keyword
 - onevim    - edit files using only one Vim instance

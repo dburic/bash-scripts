@@ -1,0 +1,162 @@
+#!/bin/bash 
+
+##include head.sh
+sourcelib "common"
+
+# Defaults
+CONFIGFILE="$CONFIGDIR/add.conf" # Configuration file
+PROJECT=""
+PROJECTDIR=""
+SOURCE=""
+FILES=()
+
+declare -A PROJECTS
+
+# Read configuration file
+readconfig() {
+    source "$CONFIGFILE" || die RC "$CONFIGFILE"
+}
+
+# Is $1 a valid project name?
+isvalidprojectname() {
+    [[ "$1" =~ [A-Za-z][A-Za-z0-9]* ]]
+}
+
+# Define project $1 with directory $2
+project() {
+    isvalidprojectname "$1" || die "invalid project name $1"
+    [ -d "$2" ] || die NOTDIR "$2"
+    PROJECTS["$1"]="$2"
+}
+
+# Is $1 a defined project?
+isproject() {
+    inlist "$1" "${!PROJECTS[@]}"
+}
+
+# Return name of function of type $1 for chosen project
+projectfunc() {
+    local fn
+    case "$1" in
+        add)
+            fn="${PROJECT}_add";;
+        find)
+            fn="${PROJECT}_find";;
+        *)
+            die "invalid function type $1";;
+    esac
+    echo "$fn"
+}
+
+# Set project from current working directory
+projectfrompwd() {
+    local d1=$(pwd -P) d2 p
+    for p in "${!PROJECTS[@]}"; do
+        d2=$(realpath "${PROJECTS["$p"]}")
+        if [ "$d1" = "$d2" ]; then
+            PROJECT="$p"
+            return
+        fi
+    done
+}
+
+# Take files specified on the command line
+filesfromargs() {
+    while [ $# -gt 0 ]; do 
+        [ -z "$1" ] && continue
+        FILES+=("$1")
+        shift
+    done
+}
+
+# Take files from specified source
+filesfromsource() {
+    [ -z "$SOURCE" ] && return
+    local fn=$(projectfunc 'find')
+    $fn || die "find function failed"
+}
+
+# Add files to project
+addfiles() {
+    local fn=$(projectfunc 'add')
+    $fn || die "add function failed"
+}
+
+# Show a nice help message
+showhelp() {
+    cat <<"EOF"
+add - add files to a project
+
+Usage
+    add [OPTION...] [FILE...]
+
+Description
+    Files given on the command line or found by the program in the
+    specified source are added to the directory of the project.
+
+    The config files contains instruction on how to add or find files for
+    every defined project. 
+
+    See the example config file for more details.
+
+Options
+    -c, --config FILE   Set config file
+    -t, --to PROJECT    Choose project
+    -f, --from SOURCE   Choose source
+
+Examples
+    # Add files to project
+    add -t project file1 file2 file3
+
+    # Add files from source to project
+    add -t project -f source
+
+    # Add files from source to project in current folder
+    add -f source
+EOF
+}
+
+# Program starts here
+
+# Command line processing
+TEMP=$(getopt \
+        -l help,config:,to:,from: \
+        -o hc:t:f: \
+        -- "$@") || die INVOPT
+eval set -- "$TEMP"
+
+while true; do
+    case "$1" in
+        -h|--help)
+            showhelp
+            exit;;
+        -c|--config)
+            CONFIGFILE="$2"
+            shift 2;;
+        -t|--to)
+            PROJECT="$2"
+            shift 2;;
+        -f|--from)
+            SOURCE="$2"
+            shift 2;;
+        --)
+            shift
+            break;;
+        -*)
+            die UNPROCOPT;;
+    esac
+done
+
+[ -f "$CONFIGFILE" ] || die NOTFILE "$CONFIGFILE"
+readconfig
+
+[ -z "$PROJECT" ] && projectfrompwd
+[ -z "$PROJECT" ] && die "missing project"
+isproject "$PROJECT" || die "project $PROJECT does not exist"
+PROJECTDIR="${PROJECTS["$PROJECT"]}"
+
+filesfromargs "$@"
+filesfromsource
+
+addfiles
+
