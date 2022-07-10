@@ -19,7 +19,7 @@ warn() {
 }
 
 # Array of error messages
-declare -A ERRORMSGS
+declare -g -A ERRORMSGS
 
 # Add error messages
 adderrormsgs() {
