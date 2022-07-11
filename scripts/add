@@ -12,6 +12,9 @@ FILES=()
 
 declare -A PROJECTS
 
+adderrormsgs \
+    INVSOURCE "invalid source %s"
+
 # Read configuration file
 readconfig() {
     source "$CONFIGFILE" || die RC "$CONFIGFILE"
@@ -38,13 +41,15 @@ isproject() {
 projectfunc() {
     local fn
     case "$1" in
-        add)
-            fn="${PROJECT}_add";;
-        find)
-            fn="${PROJECT}_find";;
+        add|find)
+            fn="${PROJECT}_$1";;
         *)
             die "invalid function type $1";;
     esac
+    if ! isfunction "$fn"; then
+        [ "$1" = "add" ] && die "missing function $fn"
+        fn="default$1"
+    fi
     echo "$fn"
 }
 
@@ -82,6 +87,11 @@ addfiles() {
     $fn || die "add function failed"
 }
 
+# Default find function - exit with error
+defaultfind() {
+    die INVSOURCE "$SOURCE"
+}
+
 # Show a nice help message
 showhelp() {
     cat <<"EOF"
@@ -94,8 +104,8 @@ Description
     Files given on the command line or found by the program in the
     specified source are added to the directory of the project.
 
-    The config files contains instruction on how to add or find files for
-    every defined project. 
+    The functions for adding and finding files for a project have to be
+    implemented in the config file.
 
     See the example config file for more details.
 
