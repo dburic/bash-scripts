@@ -1,9 +1,8 @@
-Shell scripts
+Bash scripts
 ======================================================================
 
-This is a collection of shell scripts. The scripts have been developed,
-tested and used with Bash on Linux, so they may not work with other shells
-or systems.
+This is a collection of scripts for Bash. The scripts have been developed, 
+tested and used on Linux, so they may not work with other systems.
 
 Licence
 ------------------------------

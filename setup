@@ -140,7 +140,7 @@ do_clean() {
 
 showhelp() {
     cat <<"EOF"
-setup - shell scripts setup/installation tool
+setup - scripts setup/installation tool
 
 Usage
     setup [OPTION...] COMMAND
