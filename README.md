@@ -20,6 +20,7 @@ List of scripts
 - par       - wrapper around xargs to allow easy execution of parallel jobs
 - srename   - sequentially rename files
 - start     - a file and URL starter/launcher
+- zipdir    - archive contents of directories
 
 Installation
 ------------------------------

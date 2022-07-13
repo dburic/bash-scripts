@@ -1,0 +1,227 @@
+#!/bin/bash 
+
+##include head.sh
+sourcelib "common"
+
+CONFIGFILE="$CONFIGDIR/zipdir.conf" # Configuration file
+METHOD='zip' # Method to use for archiving
+STRIP=false # Strip leading directory from files in archive?
+DESTDIR='' # Directory where the archive will be created
+TIMESTAMP=false # Add timestamp to archive name?
+TIMEFORMAT='_%Y%m%d-%H%M%S' # Time format (passed to date) for the timestamp
+
+declare -A METHODS
+
+adderrormsgs \
+    MKARC "cannot create archive %s"
+
+# Read configuration file
+readconfig() {
+    source "$CONFIGFILE" || die RC "$CONFIGFILE"
+}
+
+# Is $1 a valid method name?
+isvalidmethodname() {
+    [[ "$1" =~ [A-Za-z][A-Za-z0-9]* ]]
+}
+
+# Define method $1 with extension $2
+method() {
+    isvalidmethodname "$1" || die "invalid method name $1"
+    [ -n "$2" ] || die "empty extension for method $1"
+    METHODS["$1"]="$2"
+}
+
+# Is $1 a defined method?
+ismethod() {
+    inlist "$1" "${!METHODS[@]}"
+}
+
+# Name of function of type $1 for chosen method
+methodfunc() {
+    local func
+    case "$1" in
+        create|create_stripped)
+            func="${METHOD}_$1";;
+        *)
+            die "invalid function type $1";;
+    esac
+    echo "$func"
+}
+
+# Archive name for for directory $1
+archivename() {
+    local b=$(basename "$1")
+    local e="${METHODS["$METHOD"]}" # Extension
+    local t=''
+    $TIMESTAMP && t=$(date "+$TIMEFORMAT")
+    joinpaths "$DESTDIR" "$b$t.$e"
+}
+
+# Check validity of arguments (directories) passed on the command line
+checkargs() {
+    local d a
+    for d; do
+        [ -d "$d" ] || die NOTDIR "$d" # Directory does not exists
+        a=$(archivename "$d")
+        [ -e "$a" ] && die EXIST "$a" # Archive already exists
+    done
+}
+
+# Create a single archive
+create1() {
+    local d="$1" # Directory to archive
+    local func="$2" # Function that creates the archive
+    local a=$(archivename "$d")
+    (
+    cd "$d"
+    if $STRIP; then
+        $func "$a" || die MKARC "$a"
+    else
+        cd ..
+        local b=$(basename "$d")
+        $func "$a" "$b" || die MKARC "$a"
+    fi
+    )
+}
+
+# Create archive for all directories
+createall() {
+    local d func
+    $STRIP && func=$(methodfunc 'create_stripped') || func=$(methodfunc 'create')
+    isfunction "$func" || die "missing function $func"
+    for d; do 
+        create1 "$d" "$func"
+    done
+}
+
+# ----------------------------------------
+
+# Declare method 'zip' with extension 'zip'
+method 'zip' 'zip'
+
+# Create zip archive $1 of subdirectory $2 of current directory
+zip_create() {
+    zip -r "$1" "$2"
+}
+
+# Create zip archive $1 of all files in current directory
+zip_create_stripped() {
+    find -mindepth 1 -maxdepth 1 -exec zip "$1" -r '{}' '+'
+}
+
+# ----------------------------------------
+
+method 'targz' 'tar.gz'
+
+targz_create() {
+    tar -z -c -f "$1" "$2"
+}
+
+targz_create_stripped() {
+    find -mindepth 1 -maxdepth 1 -exec tar -z -c -f "$1" '{}' '+'
+}
+
+# ----------------------------------------
+
+method '7z' '7z'
+
+7z_create() {
+    7z a "$1" "$2"
+}
+
+7z_create_stripped() {
+    7z a "$1"
+}
+
+# ----------------------------------------
+
+# Show a nice help message
+showhelp() {
+    cat <<EOF
+zipdir - archive contents of directories
+
+Usage
+    zipdir [OPTION...] DIR...
+
+Description
+    An archive is created of each directory using one of the defined
+    archiving methods. The methods zip, targz and 7z are predefined. Other
+    methods can be implemented in the config file. 
+
+    The archive name is obtained by joining the basename of the directory
+    with the defined extension for the chosen archiving method. An optional
+    timestamp can be added to the archive name.
+
+    The leading directory can be optionally stripped from the files in the
+    archive.
+
+Options
+    -c, --config FILE       Use alternate config file
+    -m, --method METHOD     Method of archiving, default is $METHOD
+    -s, --strip             Strip base directory from files in archive
+    -d, --destdir DIR       Directory where archives are created
+    -t, --timestamp         Add timestamp to archive name
+    -f, --time-format FMT   Format passed to date for the timestamp
+
+Examples
+    # Create dir1.zip and dirb.zip in current directory
+    zipdir dir1 dira/dirb
+
+    # Create /tmp/dir.7z with leading dir stripped from the archive
+    zipdir -m 7z -s -d /tmp dir
+EOF
+}
+
+# Program starts here
+
+# Command line processing
+TEMP=$(getopt \
+        -l help,config:,method:,strip,destdir:,timestamp,time-format: \
+        -o hc:m:sd:tf: \
+        -- "$@") || die INVOPT
+eval set -- "$TEMP"
+
+while true; do
+    case "$1" in
+        -h|--help)
+            showhelp
+            exit;;
+        -c|--config)
+            [ -f "$2" ] || die NOTFILE "$2"
+            CONFIGFILE="$2"
+            shift 2;;
+        -m|--method)
+            METHOD="$2"
+            shift 2;;
+        -s|--strip)
+            STRIP=true
+            shift;;
+        -d|--destdir)
+            [ -d "$2" ] || die NOTDIR "$2"
+            DESTDIR="$2"
+            shift 2;;
+        -t|--timestamp)
+            TIMESTAMP=true
+            shift;;
+        -f|--time-format)
+            TIMEFORMAT="$2"
+            shift 2;;
+        --)
+            shift
+            break;;
+        -*)
+            die UNPROCOPT;;
+    esac
+done
+
+[ -f "$CONFIGFILE" ] && readconfig
+
+ismethod "$METHOD" || die "method $METHOD does not exist"
+
+[ -z "$DESTDIR" ] && DESTDIR=$(pwd)
+
+checkargs "$@"
+
+createall "$@"
+
