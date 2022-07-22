@@ -46,10 +46,8 @@ projectfunc() {
         *)
             die "invalid function type $1";;
     esac
-    if ! isfunction "$fn"; then
-        [ "$1" = "add" ] && die "missing function $fn"
-        fn="default$1"
-    fi
+    isfunction "$fn" || fn="default$1"
+    isfunction "$fn" || die "missing function $fn"
     echo "$fn"
 }
 
