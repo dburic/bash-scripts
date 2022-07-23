@@ -180,3 +180,9 @@ fileext() {
     esac
 }
 
+# Create directory $1 if it does not already exist
+mkdirifne() {
+    [ -d "$1" ] && return
+    mkdir -p -- "$1" || die MKDIR "$1"
+}
+

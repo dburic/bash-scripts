@@ -1,0 +1,148 @@
+#!/bin/bash 
+
+##include head.sh
+sourcelib "common"
+
+# Defaults
+DATADIR="$HOME/.local/share/scripts"
+LISTFILE="$DATADIR/remlist"
+COMMANDS="new add clear edit print dump copy move"
+
+# Show a nice help message
+showhelp() {
+    cat <<"EOF"
+rem - remember location of files for later use
+
+Usage
+    rem [COMMAND] [FILE...]
+
+Description
+    The full path of files given as arguments or read from stdin is stored
+    in a list for later use.
+
+    Available commands:
+
+        new     Clear list and add files to list
+        add     Add files to list
+        clear   Clear list
+        edit    Edit list in text editor
+        print   Print list to stdout
+        dump    Print and clear list of files
+        copy    Copy files in list
+        move    Move files in list
+
+Options
+    -l, --list FILE         Use this file to store the list
+
+Examples
+    # Remember some files that need to be moved, pwd = /dir1
+    rem new file1 file2
+
+    # Optionally, go to another directory and remember more files
+    cd /dir2
+    rem add filea fileb filec
+
+    # Go to the destination directory and move all files there
+    cd /dira/dirb
+    rem dump | xargs -d\\n mv -t . 
+
+    # Same as above, without xargs
+    rem move
+EOF
+}
+
+iscommand() {
+    inlist "$1" $COMMANDS
+}
+
+cmd_new() {
+    cmd_clear
+    cmd_add "$@"
+}
+
+addfile() {
+    [ -e "$1" ] || die NOTEXIST "$1"
+    realpath "$1" >> "$LISTFILE" || die "cannot add $1 to $LISTFILE"
+}
+
+addfromargs() {
+    local f
+    for f; do 
+        addfile "$f"
+    done
+}
+
+addfromlist() {
+    local list="$1" f
+    while read -r f || [ -n "$f" ]; do
+        addfile "$f"
+    done < <(cat "$list")
+}
+
+cmd_add() {
+    addfromargs "$@"
+    [ -t 0 ] || addfromlist "-"
+}
+
+cmd_clear() {
+    > "$LISTFILE" || die "cannot clear $LISTFILE"
+}
+
+cmd_edit() {
+    local editor="${EDITOR:-editor}"
+    "$editor" "$LISTFILE"
+}
+
+cmd_print() {
+    [ -f "$LISTFILE" ] || die NOTFILE "$LISTFILE"
+    cat "$LISTFILE"
+}
+
+cmd_dump() {
+    cmd_print
+    cmd_clear
+}
+
+cmd_copy() {
+    cmd_dump | xargs -d\\n cp -t . 
+}
+
+cmd_move() {
+    cmd_dump | xargs -d\\n mv -t .
+}
+
+# Program starts here
+
+# Command line processing
+TEMP=$(getopt \
+        -l help,list: \
+        -o hl: \
+        -- "$@") || die INVOPT
+eval set -- "$TEMP"
+
+while true; do
+    case "$1" in
+        -h|--help)
+            showhelp
+            exit;;
+        -l|--list)
+            LISTFILE="$2"
+            shift 2;;
+        --)
+            shift
+            break;;
+        -*)
+            die UNPROCOPT;;
+    esac
+done
+
+[ $# -eq 0 ] && { cmd_print; exit; }
+
+iscommand "$1" || die "$1 is not a command"
+COMMAND="$1"
+shift
+
+mkdirifne "$DATADIR"
+
+cmd_$COMMAND "$@"
+

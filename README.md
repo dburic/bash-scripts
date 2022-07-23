@@ -18,6 +18,7 @@ List of scripts
 - kwstart   - quickly start a file or URL via keyword
 - onevim    - edit files using only one Vim instance
 - par       - wrapper around xargs to allow easy execution of parallel jobs
+- rem       - remember location of files for later use
 - srename   - sequentially rename files
 - start     - a file and URL starter/launcher
 - zipdir    - archive contents of directories
