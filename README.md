@@ -4,7 +4,7 @@ Bash scripts
 This is a collection of scripts for Bash. The scripts have been developed, 
 tested and used on Linux, so they may not work with other systems.
 
-Licence
+License
 ------------------------------
 
 This software is distributed under the MIT license. See LICENSE for
