@@ -7,6 +7,7 @@ sourcelib "common"
 DATADIR="$HOME/.local/share/scripts"
 LISTFILE="$DATADIR/remlist"
 COMMANDS="new add clear edit print dump copy move"
+FILES=()
 
 # Show a nice help message
 showhelp() {
@@ -60,28 +61,34 @@ cmd_new() {
     cmd_add "$@"
 }
 
-addfile() {
-    [ -e "$1" ] || die NOTEXIST "$1"
-    realpath "$1" >> "$LISTFILE" || die "cannot add $1 to $LISTFILE"
-}
-
-addfromargs() {
-    local f
-    for f; do 
-        addfile "$f"
+filesfromargs() {
+    while [ $# -gt 0 ]; do 
+        [ -z "$1" ] && continue
+        FILES+=("$1")
+        shift
     done
 }
 
-addfromlist() {
+filesfromlist() {
     local list="$1" f
     while read -r f || [ -n "$f" ]; do
-        addfile "$f"
+        [ -z "$f" ] && continue
+        FILES+=("$f")
     done < <(cat "$list")
 }
 
+checkexist() {
+    local f 
+    for f in "${FILES[@]}"; do 
+        [ -e "$f" ] || die NOTEXIST "$f"
+    done
+}
+
 cmd_add() {
-    addfromargs "$@"
-    [ -t 0 ] || addfromlist "-"
+    filesfromargs "$@"
+    [ -t 0 ] || filesfromlist "-"
+    checkexist
+    realpath "${FILES[@]}" >> "$LISTFILE" || die "cannot add files to $LISTFILE"
 }
 
 cmd_clear() {
