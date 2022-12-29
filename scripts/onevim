@@ -4,20 +4,39 @@
 sourcelib "common"
 
 # Defaults
-CONSOLEVIM="/usr/bin/vim"
-GUIVIM="/usr/bin/gvim"
-[ -n "$DISPLAY" ] && VIM="$GUIVIM" || VIM="$CONSOLEVIM"
-SERVERNAME="ONEVIM"
-FILES=() # Cumulative list of files to edit
+CONFIGFILE="$CONFIGDIR/onevim.conf"
+FILES=() # Cumulative list of files to edit/open
 
-# Start/call Vim
-startvim() {
+# ----------------------------------------------------------------------
+# Variables and functions that can be redefined in the config file
+
+VIM="/usr/bin/vim"
+SERVERNAME="ONEVIM"
+
+# Call Vim
+vim() {
     "$VIM" "$@"
 }
 
-# Is the server started?
-serverstarted() {
-    startvim --serverlist | grep -q "^$SERVERNAME$"
+# Check if Vim is started
+isvimstarted() {
+    vim --serverlist | grep -q "^$SERVERNAME$"
+}
+
+# Start Vim server and open files
+startvim() {
+    vim --servername "$SERVERNAME" "${FILES[@]}"
+}
+
+# Open files when Vim server is already started
+openfiles() {
+    [ ${#FILES[@]} -gt 0 ] && vim --servername "$SERVERNAME" --remote-silent "${FILES[@]}"
+}
+# ----------------------------------------------------------------------
+
+# Read configuration file
+readconfig() {
+    source "$CONFIGFILE" || die RC "$CONFIGFILE"
 }
 
 # Add a single file to the cumulative list
@@ -45,7 +64,6 @@ addlist() {
     done < <(cat "$list")
 }
 
-
 # Show a nice help message
 showhelp() {
     cat <<"EOF"
@@ -62,9 +80,8 @@ Description
     line). 
 
 Options
-    -l, --list FILE     Read files to edit from file
-    -c, --console, --no-gui 
-                        Force use of console version of Vim
+    -c, --config FILE       Use alternate config file
+    -l, --list FILE         Read files to edit from file
 
 Examples
     onevim file.txt
@@ -76,8 +93,8 @@ EOF
 
 # Command line processing
 TEMP=$(getopt \
-        -l help,list:,console,no-gui\
-        -o hl:c \
+        -l help,config:,list: \
+        -o hc:l: \
         -- "$@") || die INVOPT
 eval set -- "$TEMP"
 
@@ -86,14 +103,15 @@ while true; do
         -h|--help)
             showhelp
             exit 0;;
+        -c|--config)
+            [ -f "$2" ] || die NOTFILE "$2"
+            CONFIGFILE="$2"
+            shift 2;;
         -l|--list)
             if [ -f "$2" ]; then # Nonexistent files are just ignored
                 addlist "$2"
             fi
             shift 2;;
-        -c|--console|--no-gui)
-            VIM="$CONSOLEVIM"
-            shift;;
         --)
             shift
             break;;
@@ -105,20 +123,19 @@ done
 # Redirection or pipe?
 if [ ! -t 0 ]; then
     addlist "-" # Add files from stdin
-    exec </dev/tty # Reattach stdin to controlling terminal - otherwise
-                   # Vim could give warning that 'Input is not from a terminal'
+    exec </dev/tty # Reattach stdin to controlling terminal - fix for 'Input is not from a terminal'
 fi
 
 # Add files from command line
 addfiles "$@"
 
-# Here we go...
-set -- "${FILES[@]}"
-if [ -z "$1" ]; then
-    if ! serverstarted; then
-        startvim --servername $SERVERNAME
-    fi
+# Read config file
+[ -f "$CONFIGFILE" ] && readconfig 
+
+# Open files
+if isvimstarted; then
+    openfiles
 else
-    startvim --servername $SERVERNAME --remote-silent "$@"
+    startvim
 fi
 
