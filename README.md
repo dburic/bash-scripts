@@ -13,10 +13,9 @@ details.
 List of scripts
 ------------------------------
 
-- add       - add files to a project 
 - jump      - quickly jump to a directory
 - kwstart   - quickly start a file or URL via keyword
-- notes     - manage sets of text notes
+- notes     - manage text notes
 - onevim    - edit files using only one Vim instance
 - par       - wrapper around xargs to allow easy execution of parallel jobs
 - rem       - remember location of files for later use
