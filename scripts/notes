@@ -1,0 +1,233 @@
+#!/bin/bash
+
+##include head.sh
+sourcelib "common"
+
+# Global variables and default values
+MAINCONF="$CONFIGDIR/notes.conf" # Main (default) config
+NOTESCONF=".notes.conf" # Basename of local config
+LOCALCONF="" # Full path to local config - if found, otherwise empty
+LCPARLEV=1 # Search for local config this many levels above cwd (0 = disable, -1 = no limit)
+HEADERPATTERN='<!--\n\n%s\n\n-->\n\n' # printf pattern for header
+ATTRPATTERN='#%-15s%s' # printf pattern for header attributes
+HEADERATTRS=('title' 'category' 'tags' 'created') # Attributes that are included in header
+NOTESEXT=".md" # File extension for notes
+ADDDIR="img" # Directory for added files
+STDOUT=false # Print header to stdout instead of storing to file
+NOTENAME="" # Note filename
+declare -g -A ATTRS # Associative array for note attributes
+
+# Show a nice help message
+showhelp() {
+    cat <<"EOF"
+notes - manage text notes
+
+Usage
+    notes [OPTION...] COMMAND [ARG...]
+
+Description
+    The purpose of this program is to help with the management of text notes.
+    Below is a list of supported commands.
+
+    The program has a main (per user), and a local (per collection of notes)
+    configuration file, which are expected to be valid shell scripts and are
+    sourced by the program.
+
+    Some built-in defaults assume that notes are written in Markdown, but these
+    can easily be adapted to other formats. The program also assumes that notes
+    begin with a header, which contains the note title and other metadata, like
+    category, tags or a timestamp.
+
+    When creating a note, the name of the file in which the note is stored is
+    determined automatically from the title of the note.
+
+Commands
+    new TITLE [ATTR=VALUE]...
+                    Create a new note with optional header attributes
+
+    add FILE        Add a file (image, document, ...)
+
+    last [N]        Show a list of last changed notes
+
+Options
+    --stdout        Print new note on stdout only
+
+Examples
+    # Create a directory and a local config file (optional)
+    mkdir notes
+    cd $_
+    touch .notes.conf
+
+    # Create new notes
+    notes new First Note
+    notes new Second Note tags="tag1, tag2, tag3"
+
+    # Add image
+    notes add ~/screenshot.png
+
+    # Show most recently changed notes
+    notes last 10
+EOF
+}
+
+cmdfunc() {
+    echo "cmd_$1"
+}
+
+iscommand() {
+    isfunction "$(cmdfunc "$1")"
+}
+
+# Read config file
+readconf() {
+    [ -n "$1" -a -f "$1" ] && { source "$1" || die RC "$1"; }
+}
+
+# Find local conf file
+findlocalconf() {
+    local d=$(pwd)
+    local c l
+    isint "$LCPARLEV" && l=$LCPARLEV || l=0
+    while true; do
+        c="$d/$NOTESCONF"
+        if [ -f "$c" ]; then
+            LOCALCONF="$c"
+            return
+        fi
+        [ $l -eq 0 ] && return
+        [ $d = "/" ] && return
+        d=$(dirname "$d")
+        (( l-- ))
+    done
+}
+
+# Title to filename function
+t2f() {
+    echo "$1" | tr '[:upper:] ' '[:lower:]-'
+}
+
+# Set filename from title
+setfilename() {
+    [ -z "${ATTRS['title']}" ] && die "missing title"
+    NOTENAME="$(t2f "${ATTRS['title']}")$NOTESEXT"
+}
+
+# Fill ATTRS with attributes and their values from command line
+setattrs() {
+    local t=() # Words in title
+    local av a v
+    for av; do
+        case "$av" in
+            *=*) # attribute=value pair
+                a="${av%%=*}"; v="${av#*=}"; ATTRS["$a"]="$v";;
+            *) # everything else is part of title
+                t+=("$av");;
+        esac
+    done
+    [ ${#t[@]} -gt 0 ] && ATTRS['title']="${t[@]}"
+}
+
+attr_created() {
+    date '+%Y-%m-%d %H:%M:%S %z'
+}
+
+# Return attribute value, either from ATTRS or from special function
+attr() {
+    local a="$1"
+    if inlist "$a" "${!ATTRS[@]}"; then
+        echo "${ATTRS["$a"]}"
+    elif isfunction "attr_$a"; then # Attribute is not in ATTRS ==> try to use function
+        "attr_$a"
+    fi
+}
+
+# Print header
+header() {
+    local lns=() # All lines
+    local ln a v
+    for a in "${HEADERATTRS[@]}"; do
+        v=$(attr "$a")
+        printf -v ln "$ATTRPATTERN" "$a" "$v"
+        lns+=("$ln")
+    done
+    printf "$HEADERPATTERN" "$(IFS=$'\n'; echo "${lns[*]}")"
+}
+
+# List of notes with modification time, size, filename
+lsnotes() {
+    local datetime="%TY-%Tm-%Td %TH:%TM:%.2TS"
+    local size="%s"
+    local filename="%f"
+    find . -mindepth 1 -maxdepth 1 -name "*$NOTESEXT" \
+        -printf "$datetime\t$size\t$filename\n"
+}
+
+# Add single file
+add() {
+    local src="$1"
+    local dest="$2/$(basename "$src")"
+    cp "$src" "$dest" && echo "$dest" || die "cannot add $1"
+}
+
+# Commands
+
+cmd_new() {
+    setattrs "$@"
+    $STDOUT && { header; return; }
+    setfilename
+    [ -f "$NOTENAME" ] && die EXIST "$NOTENAME"
+    header > "$NOTENAME" && echo "$NOTENAME" || die "cannot create $NOTENAME"
+}
+
+cmd_last() {
+    local n
+    ispsint "$1" && n=$1
+    lsnotes | sort -r | { [ -z "$n" ] && cat || head -n $n; }
+}
+
+cmd_add() {
+    local f
+    local d="$ADDDIR"
+    [ -d "$d" ] || mkdir "$d"
+    for f; do
+        [ -f "$f" ] || { warn "$1 is not a file - skipping"; continue; }
+        add "$f" "$d"
+    done
+}
+
+# Program starts here
+
+# Command line processing
+TEMP=$(getopt \
+        -l help,stdout \
+        -o h \
+        -- "$@") || die INVOPT
+eval set -- "$TEMP"
+
+while true; do
+    case "$1" in
+        -h|--help)
+            showhelp
+            exit;;
+        --stdout)
+            STDOUT=true
+            shift;;
+        --)
+            shift
+            break;;
+        -*)
+            die UNPROCOPT;;
+    esac
+done
+
+readconf "$MAINCONF"
+findlocalconf
+readconf "$LOCALCONF"
+
+[ $# -eq 0 ] && die MISSCMD
+iscommand "$1" || die NOTCMD "$1"
+COMMAND="$1"
+shift
+
+$(cmdfunc "$COMMAND") "$@"
+

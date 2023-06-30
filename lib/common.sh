@@ -57,7 +57,9 @@ adderrormsgs \
     RMFILE     'cannot remove file %s' \
     RMDIR      'cannot remove directory %s' \
     MOUNTED    '%s is already mounted' \
-    NOTMOUNTED '%s is not mounted'
+    NOTMOUNTED '%s is not mounted' \
+    MISSCMD    'missing command' \
+    NOTCMD     '%s is not a command'
 
 # Is $1 equal to one of $2, $3, $4, ...?
 inlist() {
@@ -106,7 +108,7 @@ isset() {
 
 # Is $1 an integer?
 isint() {
-    printf "%d" "$1" >/dev/null 2>&1
+    [ -n "$1" ] && printf "%d" "$1" >/dev/null 2>&1
 }
 
 # Nonnegative integer?
@@ -121,7 +123,7 @@ ispsint() {
 
 # Is $1 a float?
 isfloat() {
-    printf "%e" "$1" >/dev/null 2>&1
+    [ -n "$1" ] && printf "%e" "$1" >/dev/null 2>&1
 }
 
 # Nonnegative float?
