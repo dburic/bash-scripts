@@ -1,17 +1,13 @@
-Bash scripts
-======================================================================
+# Bash scripts
 
-This is a collection of scripts for Bash. The scripts have been developed, 
-tested and used on Linux, so they may not work with other systems.
+This is a collections of Bash scripts to support specific command-line
+workflows. The scripts are developed, tested and used mostly on Linux.
 
-License
-------------------------------
+## License
 
-This software is distributed under the MIT license. See LICENSE for
-details.
+This software is distributed under the MIT license. See LICENSE for details.
 
-List of scripts
-------------------------------
+## List of scripts
 
 - jump      - quickly jump to a directory
 - kwstart   - quickly start a file or URL via keyword
@@ -23,11 +19,9 @@ List of scripts
 - start     - a file and URL starter/launcher
 - zipdir    - archive contents of directories
 
-Installation
-------------------------------
+## Installation
 
-The installation procedure will overwrite files without asking, so be
-careful.
+The installation procedure will overwrite files without asking, so be careful.
 
 Choose an installation directory, say `/usr/local`, and modify the variable
 `LIBDIR` in `head.sh` so that it points to `/usr/local/lib/bash`. 
@@ -50,18 +44,16 @@ If you have chosen `$HOME` as your installation directory and
 Executable files are copied to the `bin` subdirectory, while libraries are
 copied to the `lib/bash` subdirectory of the chosen installation directory.
 
-Configuration
-------------------------------
+## Configuration
 
-By default, the scripts look for their config files in the directory
-specified in the `CONFIGDIR` variable (see above). 
+By default, the scripts look for their config files in the directory specified
+in the `CONFIGDIR` variable (see above). 
 
 Examples of config files can be found in the `doc` directory.
 
-Usage
-------------------------------
+## Usage
 
 Each script has a `--help` switch, which will print a help message with a
 summary of the purpose of the script, a usage statement, a more elaborate
-description, a list of available options, and some examples.
+description, a list of available commands and options, and some examples.
 
