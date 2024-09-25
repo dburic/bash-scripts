@@ -84,7 +84,7 @@ EOF
 
 # Command line processing
 TEMP=$(getopt \
-        -l help,max-procs:,max-args:shell,verbose,nice: \
+        -l help,max-procs:,max-args:,shell,verbose,nice: \
         -o hP:n:svN: \
         -- "$@") || die INVOPT
 eval set -- "$TEMP"
