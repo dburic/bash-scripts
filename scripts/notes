@@ -8,14 +8,14 @@ MAINCONF="$CONFIGDIR/notes.conf" # Main (default) config
 NOTESCONF=".notes.conf" # Basename of local config
 LOCALCONF="" # Full path to local config - if found, otherwise empty
 LCPARLEV=1 # Search for local config this many levels above cwd (0 = disable, -1 = no limit)
-HEADERPATTERN='<!--\n\n%s\n\n-->\n\n' # printf pattern for header
-ATTRPATTERN='#%-15s%s' # printf pattern for header attributes
-HEADERATTRS=('title' 'category' 'tags' 'created') # Attributes that are included in header
-NOTESEXT=".md" # File extension for notes
-ADDDIR="img" # Directory for added files
-STDOUT=false # Print header to stdout instead of storing to file
-NOTENAME="" # Note filename
-declare -g -A ATTRS # Associative array for note attributes
+TITLEFORMAT='# %s\n' # printf format for title
+IMPORTDIR="res" # Directory for imported files (resources)
+OUTPUT="" # Output filename when adding a note - empty for default using title2filename
+STDOUT=false # Print note to stdout instead of storing to file
+OVERWRITE=false # Overwrite output file for new note
+EDITNEW=false # Open newly created note in editor
+EDITOR="${EDITOR:-editor}" # Editor to use for editing
+NOTESEXT=".txt" # File extension for notes
 
 # Show a nice help message
 showhelp() {
@@ -29,28 +29,34 @@ Description
     The purpose of this program is to help with the management of text notes.
     Below is a list of supported commands.
 
-    The program has a main (per user), and a local (per collection of notes)
+    The program has a main (per user), and a local (per set of notes)
     configuration file, which are expected to be valid shell scripts and are
     sourced by the program.
 
-    Some built-in defaults assume that notes are written in Markdown, but these
-    can easily be adapted to other formats. The program also assumes that notes
-    begin with a header, which contains the note title and other metadata, like
-    category, tags or a timestamp.
+    A note is a text file whose first line contains the note title. No other
+    assumptions are made about the structure of a note. A text editor should be
+    used to enter and maintain the content of notes.
 
-    When creating a note, the name of the file in which the note is stored is
-    determined automatically from the title of the note.
+    A set of notes consists of all notes residing in a directory.
+
+    A new note is added/created by specifying its title, from which the name of
+    the file that will contain the note is derived.
+
+    Additional resources (images, documents, ...) can be imported (stored in a
+    subdirectory of the set of notes) using the appropriate command.
 
 Commands
-    new TITLE [ATTR=VALUE]...
-                    Create a new note with optional header attributes
-
-    add FILE        Add a file (image, document, ...)
-
-    last [N]        Show a list of last changed notes
+    add TITLE       Create new note
+    list            List all notes in current directory
+    last [N]        List most recently modified notes
+    import FILE...  Import files (images, documents, ...)
 
 Options
-    --stdout        Print new note on stdout only
+    -o, --output FILE       Set output filename for new note
+        --stdout            Print new note on stdout only
+    -x, --overwrite         Overwrite output file for new note if it exists
+    -e, --edit              Open newly created note in editor
+    -d, --import-dir DIR    Directory for imported files
 
 Examples
     # Create a directory and a local config file (optional)
@@ -59,14 +65,17 @@ Examples
     touch .notes.conf
 
     # Create new notes
-    notes new First Note
-    notes new Second Note tags="tag1, tag2, tag3"
+    notes add First Note
+    notes add Second Note
 
     # Add image
-    notes add ~/screenshot.png
+    notes import ~/screenshot.png
 
-    # Show most recently changed notes
-    notes last 10
+    # List all notes with title
+    notes list
+
+    # Last 5 modified notes
+    notes last 5
 EOF
 }
 
@@ -101,97 +110,75 @@ findlocalconf() {
     done
 }
 
-# Title to filename function
-t2f() {
+# Arguments to title
+args2title() {
+    echo "$*"
+}
+
+# Title to filename
+title2filename() {
     echo "$1" | tr '[:upper:] ' '[:lower:]-'
 }
 
-# Set filename from title
-setfilename() {
-    [ -z "${ATTRS['title']}" ] && die "missing title"
-    NOTENAME="$(t2f "${ATTRS['title']}")$NOTESEXT"
+# Print title
+printtitle() {
+    printf "$TITLEFORMAT" "$1"
 }
 
-# Fill ATTRS with attributes and their values from command line
-setattrs() {
-    local t=() # Words in title
-    local av a v
-    for av; do
-        case "$av" in
-            *=*) # attribute=value pair
-                a="${av%%=*}"; v="${av#*=}"; ATTRS["$a"]="$v";;
-            *) # everything else is part of title
-                t+=("$av");;
-        esac
-    done
-    [ ${#t[@]} -gt 0 ] && ATTRS['title']="${t[@]}"
-}
-
-attr_created() {
-    date '+%Y-%m-%d %H:%M:%S %z'
-}
-
-# Return attribute value, either from ATTRS or from special function
-attr() {
-    local a="$1"
-    if inlist "$a" "${!ATTRS[@]}"; then
-        echo "${ATTRS["$a"]}"
-    elif isfunction "attr_$a"; then # Attribute is not in ATTRS ==> try to use function
-        "attr_$a"
-    fi
-}
-
-# Print header
-header() {
-    local lns=() # All lines
-    local ln a v
-    for a in "${HEADERATTRS[@]}"; do
-        v=$(attr "$a")
-        printf -v ln "$ATTRPATTERN" "$a" "$v"
-        lns+=("$ln")
-    done
-    printf "$HEADERPATTERN" "$(IFS=$'\n'; echo "${lns[*]}")"
-}
-
-# List of notes with modification time, size, filename
-lsnotes() {
-    local datetime="%TY-%Tm-%Td %TH:%TM:%.2TS"
+# List of notes with title
+listnotes() {
+    local date="%TY-%Tm-%Td"
+    local time="%TH:%TM:%.2TS"
     local size="%s"
     local filename="%f"
-    find . -mindepth 1 -maxdepth 1 -name "*$NOTESEXT" \
-        -printf "$datetime\t$size\t$filename\n"
+    find -mindepth 1 -maxdepth 1 -name "*$NOTESEXT" \
+        -printf "$date\t$time\t$size\t$filename\t" \
+        -exec head -n 1 '{}' ';'
 }
 
-# Add single file
-add() {
-    local src="$1"
-    local dest="$2/$(basename "$src")"
-    cp "$src" "$dest" && echo "$dest" || die "cannot add $1"
+# Import a single file
+importfile() {
+    cp "$1" "$2" && echo "$2" || warn "cannot import $1"
 }
 
 # Commands
 
-cmd_new() {
-    setattrs "$@"
-    $STDOUT && { header; return; }
-    setfilename
-    [ -f "$NOTENAME" ] && die EXIST "$NOTENAME"
-    header > "$NOTENAME" && echo "$NOTENAME" || die "cannot create $NOTENAME"
+cmd_add() {
+    local fn
+    local title=$(args2title "$@")
+    if $STDOUT; then
+        printtitle "$title"
+    else
+        if [ -z "$OUTPUT" ]; then
+            fn="$(title2filename "$title")$NOTESEXT"
+        else
+            fn="$OUTPUT"
+        fi
+        if [ -e "$fn" ]; then
+            $OVERWRITE || die EXIST "$fn"
+        fi
+        printtitle "$title" > "$fn" && echo "$fn" || die "cannot create $fn"
+        $EDITNEW && "$EDITOR" "$fn"
+    fi
+}
+
+cmd_list() {
+    listnotes
 }
 
 cmd_last() {
     local n
     ispsint "$1" && n=$1
-    lsnotes | sort -r | { [ -z "$n" ] && cat || head -n $n; }
+    listnotes | sort -r -k1,2 | { [ -z "$n" ] && cat || head -n $n; }
 }
 
-cmd_add() {
-    local f
-    local d="$ADDDIR"
-    [ -d "$d" ] || mkdir "$d"
-    for f; do
-        [ -f "$f" ] || { warn "$1 is not a file - skipping"; continue; }
-        add "$f" "$d"
+cmd_import() {
+    local src dest
+    mkdir -p "$IMPORTDIR" || die MKDIR "$d"
+    for src; do
+        [ -f "$src" ] || { warn "$src is not a file - skipping"; continue; }
+        dest="$IMPORTDIR/$(basename "$src")"
+        importfile "$src" "$dest"
     done
 }
 
@@ -199,8 +186,8 @@ cmd_add() {
 
 # Command line processing
 TEMP=$(getopt \
-        -l help,stdout \
-        -o h \
+        -l help,output:,stdout,overwrite,edit \
+        -o ho:xe \
         -- "$@") || die INVOPT
 eval set -- "$TEMP"
 
@@ -209,9 +196,21 @@ while true; do
         -h|--help)
             showhelp
             exit;;
+        -o|--output)
+            OUTPUT="$2"
+            shift 2;;
         --stdout)
             STDOUT=true
             shift;;
+        -x|--overwrite)
+            OVERWRITE=true
+            shift;;
+        -e|--edit)
+            EDITNEW=true
+            shift;;
+        -d|--import-dir)
+            IMPORTDIR="$2"
+            shift 2;;
         --)
             shift
             break;;
