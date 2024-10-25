@@ -52,28 +52,22 @@ whichconfig() {
     echo "$CONFIGFILE"
 }
 
-# Return regex pattern for grep
-greppattern() {
-    local dest="$1" achor="$2" pat=""
-    { $anchor && [ ${dest:0:1} != '^' ]; } && pat="^$dest" || pat="$dest" # anchor can be "true" or "false"
-    echo "$pat"
-}
-
-# Grep bookmarks for destination with or without anchor
+# Grep bookmarks for given pattern
 grepbookmarks() {
-    local dest="$1" anchor="$2"
-    printf '%s\n' "${BOOKMARKS[@]}" | $GREP -n "$(greppattern "$dest" "$anchor")" | cut -d: -f1
+    printf '%s\n' "${BOOKMARKS[@]}" | $GREP -n "$1" | cut -d: -f1
 }
 
 # Search bookmarks for given destination
 searchbookmarks() {
     local dest="$1" k
     readconfig
-    k=$(grepbookmarks "$dest" true)
-    if  [ -z "$k" -a ${dest:0:1} != '^' ]; then # Anchored pattern gives no match
-        k=$(grepbookmarks false)
-        [ -z "$k" ] && return # Nonanchored pattern also gives no match
+    if [ "${dest:0:1}" != '^' ]; then
+        k=$(grepbookmarks "^$dest")
+        [ -z "$k" ] && k=$(grepbookmarks "$dest")
+    else
+        k=$(grepbookmarks "$dest")
     fi
+    [ -z "$k" ] && return # No match
     (( k-- ))
     echo "${DIRS[$k]}"
 }
@@ -95,8 +89,12 @@ searchsubdirs() {
             listsubdirs "$dir" | tail -n 1;;
         *)
             local subdir
-            subdir=$(listsubdirs "$dir" | $GREP "$(greppattern "$dest" true)")
-            [ -z "$subdir" -a ${dest:0:1} != '^' ] && subdir=$(listsubdirs "$dir" | $GREP "$(greppattern "$dest" false)")
+            if [ "${dest:0:1}" != '^' ]; then
+                subdir=$(listsubdirs "$dir" | $GREP "^$dest")
+                [ -z "$subdir" ] && subdir=$(listsubdirs "$dir" | $GREP "$dest")
+            else 
+                subdir=$(listsubdirs "$dir" | $GREP "$dest")
+            fi
             echo "$subdir"
             ;;
     esac
