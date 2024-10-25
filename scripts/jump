@@ -1,4 +1,4 @@
-#!/bin/bash 
+#!/bin/bash
 
 ##include head.sh
 sourcelib "common"
@@ -11,8 +11,7 @@ JUMPDIR="" # Final directory to jump to
 SAVEFILE="" # File where $JUMPDIR should be saved
 MODE="jump" # What to do
 ALLOWEDMODES="jump view-config edit-config which-config" # What can be done
-GREP="grep -i -m 1" # How to call grep
-MATCHANYWHERE=false # Match anywhere, not only at beginning
+GREP="grep -E -i -m 1" # How to call grep
 
 # Additional error messages
 adderrormsgs \
@@ -21,7 +20,7 @@ adderrormsgs \
 
 # Add bookmark and directory
 addbookmarkdir() {
-    BOOKMARKS+=("$1") 
+    BOOKMARKS+=("$1")
     DIRS+=("$2")
 }
 
@@ -29,7 +28,7 @@ addbookmarkdir() {
 readconfig() {
     local l
     while read -r l || [ -n "$l" ]; do
-        case "$l" in 
+        case "$l" in
             "#"*|"")
                 continue;;
         esac
@@ -55,27 +54,52 @@ whichconfig() {
 
 # Return regex pattern for grep
 greppattern() {
-    local pat=""
-    $MATCHANYWHERE && pat="$1" || pat="^$1"
+    local dest="$1" achor="$2" pat=""
+    { $anchor && [ ${dest:0:1} != '^' ]; } && pat="^$dest" || pat="$dest" # anchor can be "true" or "false"
     echo "$pat"
 }
 
-# Get directory from bookmarks
-getfrombookmarks() {
-    local dest="$1"
+# Grep bookmarks for destination with or without anchor
+grepbookmarks() {
+    local dest="$1" anchor="$2"
+    printf '%s\n' "${BOOKMARKS[@]}" | $GREP -n "$(greppattern "$dest" "$anchor")" | cut -d: -f1
+}
+
+# Search bookmarks for given destination
+searchbookmarks() {
+    local dest="$1" k
     readconfig
-    local pat=$(greppattern "$dest")
-    local k=$(printf '%s\n' "${BOOKMARKS[@]}" | $GREP -n "$pat" | cut -d: -f1)
-    [ -z "$k" ] && return # No match
+    k=$(grepbookmarks "$dest" true)
+    if  [ -z "$k" -a ${dest:0:1} != '^' ]; then # Anchored pattern gives no match
+        k=$(grepbookmarks false)
+        [ -z "$k" ] && return # Nonanchored pattern also gives no match
+    fi
     (( k-- ))
     echo "${DIRS[$k]}"
 }
 
-# Get subdirectory of given directory
-getsubdir() {
+# Sorted list of subdirectories of given directory
+listsubdirs() {
+    find -L "$1" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
+}
+
+# Search subdirectories of given directory for destination
+searchsubdirs() {
     local dest="$1" dir="$2"
-    local pat=$(greppattern "$dest")
-    find -L "$dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | $GREP "$pat"
+    case "$dest" in 
+        '.'|'..')
+            echo "$dest";;
+        'F')
+            listsubdirs "$dir" | head -n 1;;
+        'L')
+            listsubdirs "$dir" | tail -n 1;;
+        *)
+            local subdir
+            subdir=$(listsubdirs "$dir" | $GREP "$(greppattern "$dest" true)")
+            [ -z "$subdir" -a ${dest:0:1} != '^' ] && subdir=$(listsubdirs "$dir" | $GREP "$(greppattern "$dest" false)")
+            echo "$subdir"
+            ;;
+    esac
 }
 
 # Add part to final directory
@@ -100,13 +124,15 @@ setjumpdir() {
             case "$dest" in
                 ".")
                     part=$(pwd);;
+                "..")
+                    part=$(dirname "$(pwd)");;
                 "/"*)
                     [ -d "$dest" ] && part="$dest" || part="";;
                 *)
-                    part=$(getfrombookmarks "$dest");;
+                    part=$(searchbookmarks "$dest");;
             esac
         else # Not first pass
-            part=$(getsubdir "$dest" "$JUMPDIR")
+            part=$(searchsubdirs "$dest" "$JUMPDIR")
         fi
         [ -z "$part" ] && die NODEST "$dest"
         addpart "$part"
@@ -122,17 +148,21 @@ Usage
     jump [OPTION...] [DESTINATION...]
 
 Description
-    The first destination can be be an absolute path to a directory, a
-    dot . for the current directory, a tilde ~ for the home directory,
-    or a regular expression used to search for a bookmark in the config
-    file. 
+    The first destination can be be an absolute path to a directory, one
+    (.) or two (..) dots for the current or parent directory, a tilde (~)
+    for the home directory, or a regular expression used to search for a
+    bookmark in the config file.
 
-    All other destinations are regular expression used to search for a
-    subdirectory of the directory given by the previous destination. 
+    All other destinations are used to search for a subdirectory of the
+    directory given by the previous destination. Besides dots (. and ..)
+    and regular expressions, which function as expected, F and L can be
+    used to select the first and last subdirectory in the sorted list of
+    subdirectories.
 
-    The search is case insesitive, and is by default anchored to the
-    beginning of the bookmark or the directory name. Only the first
-    match is used.
+    Regular expression searches use grep -E -i -m 1 (exteneded regular
+    expressions, ignore case, only first match). Unless the regular
+    expression begins with an anchor (^), a match at the beginning is tried
+    first, then a match anywhere.
 
     jump only prints the found directory. A function is needed to really
     change the working directory (see examples).
@@ -143,31 +173,31 @@ Options
     -v, --view-config       View config file
     -e, --edit-config       Edit config file
     -w, --which-config      Show path of config file
-    -a, --anywhere          Match anywhere, not only at the beginning
 
 Examples
     # Add bookmark
-    echo 'sysdoc /usr/share/doc' >> $(jump -w)
+    echo 'doc /usr/share/doc' >> $(jump -w)
 
     # Jump to the bookmarked dir, or to one of its subdirs
-    jump sysdoc                 # /usr/share/doc
-    jump sysdoc bash            # /usr/share/doc/bash
-    jump s.*c py.*7 h           # /usr/share/doc/python2.7/html
+    jump doc                    # /usr/share/doc
+    jump doc bash               # /usr/share/doc/bash
+    jump d fbdev                # /usr/share/doc/xserver-xorg-video-fbdev
+    jump d apa ex               # /usr/share/doc/apache2/examples
 
     # Jump to some other dirs
     jump /usr loc src           # /usr/local/src
-    jump -a ~ ^\\.moz fir def   # ~/.mozilla/firefox/m2ivam4k.default
+    jump ~ \\.moz fir def       # ~/.mozilla/firefox/m2ivam4k.default
 
     # A function is needed to really jump
     j() { jump -s ~/.jump "$@" && cd "$(cat ~/.jump)"; }
-    j sysdoc bash
+    j doc bash
 EOF
 }
 
 # Command line processing
 TEMP=$(getopt \
-        -l help,save:,config:,view-config,edit-config,which-config,anywhere \
-        -o hs:c:vewa \
+        -l help,save:,config:,view-config,edit-config,which-config \
+        -o hs:c:vew \
         -- "$@") || die INVOPT
 eval set -- "$TEMP"
 
@@ -190,9 +220,6 @@ while true; do
             shift;;
         -w|--which-config)
             MODE="which-config"
-            shift;;
-        -a|--anywhere)
-            MATCHANYWHERE=true
             shift;;
         --)
             shift
@@ -217,7 +244,7 @@ if ! inlist "$MODE" jump dry-run; then
 fi
 
 # Set directory to jump to
-if [ -z "$1" ]; then 
+if [ -z "$1" ]; then
     JUMPDIR="$HOME"
 else
     setjumpdir "$@"
