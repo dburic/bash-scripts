@@ -1,7 +1,7 @@
 #!/bin/bash
 
-##include head.sh
-sourcelib "common"
+LIBDIR=$(cd "${BASH_SOURCE[0]%/*}/../lib/bash-scripts" 2>/dev/null && pwd); LIBDIR=${LIBDIR:-.}
+source "$LIBDIR/common.sh"
 
 # Global variables and default values
 MAINCONF="$CONFIGDIR/notes.conf" # Main (default) config

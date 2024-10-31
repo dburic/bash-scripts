@@ -1,8 +1,11 @@
-# common.sh - common functions for shell programs
+# common.sh - common functions for bash programs
 
 # Program's basename and realpath
 PROGNAME=$(basename -- "$0")
 REALPATH=$(realpath -- "$0")
+
+# Configuration directory
+CONFIGDIR="$HOME/.config/bash-scripts"
 
 # Should messages begin with the program's name?
 PRINTNAME=false

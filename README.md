@@ -21,33 +21,19 @@ This software is distributed under the MIT license. See LICENSE for details.
 
 ## Installation
 
-The installation procedure will overwrite files without asking, so be careful.
-
-Choose an installation directory, say `/usr/local`, and modify the variable
-`LIBDIR` in `head.sh` so that it points to `/usr/local/lib/bash`. 
-
-The variable `CONFIGDIR`, also in `head.sh`, contains the directory where
-config files are kept. The default `$HOME/.config/scripts` can be changed to
-any other directory.
-
-Now execute the included setup script:
-
-    ./setup prepare
-    sudo ./setup --prefix=/usr/local install
-
-If you have chosen `$HOME` as your installation directory and
-`$HOME/.config/scripts` as your config directory, then you don't have to edit
-`head.sh`, just execute the setup script:
+Execute the following command:
 
     ./setup install
 
-Executable files are copied to the `bin` subdirectory, while libraries are
-copied to the `lib/bash` subdirectory of the chosen installation directory.
+This will copy all scripts to `~/.local/bin`, and `common.sh` to `~/.local/lib/bash-scripts`.
+
+The `--prefix` option can be used to change `~/.local` to something else:
+
+    ./setup install --prefix=$HOME
 
 ## Configuration
 
-By default, the scripts look for their config files in the directory specified
-in the `CONFIGDIR` variable (see above). 
+By default, the scripts look for their config files in `~/.config/bash-scripts`.
 
 Examples of config files can be found in the `doc` directory.
 

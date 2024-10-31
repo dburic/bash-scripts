@@ -1,16 +1,11 @@
 #!/bin/bash
 
-BASEDIR=$(cd "${BASH_SOURCE[0]%/*}"; pwd)
-LIBDIR="$(dirname "$(readlink -f "$0")")/lib"
-COMMONLIB="$LIBDIR/common.sh"
-if ! source "$COMMONLIB" 2>/dev/null; then
-    echo "error: failed to load $COMMONLIB" >&2
-    exit 2
-fi
+PROJECT="bash-scripts"
+BASEDIR=$(cd "${BASH_SOURCE[0]%/*}" && pwd)
+LIBDIR="$BASEDIR/lib/$PROJECT"
+source "$LIBDIR/common.sh" || exit 9
 
-PREFIX="$HOME" # Install prefix
-SCRIPTS=() # Scripts to process
-INCLUDES=("head.sh") # Included files
+PREFIX="$HOME/.local" # Install prefix
 COMMAND="" # Command to execute
 
 adderrormsgs \
@@ -18,29 +13,14 @@ adderrormsgs \
     UNKNOWNCMD "unknown command %s" \
     INSTALL "cannot install %s"
 
-# Fill SCRIPTS with scripts to process
-setscripts() {
-    local f
-    if [ -z "$1" ]; then
-        while read f; do
-            SCRIPTS+=("$f")
-        done < <(find scripts -type f)
-    else 
-        for f; do 
-            SCRIPTS+=("$f")
-        done
-    fi
-}
-
 # Name of function implementing command $1
 cmdfunc() {
-    echo "do_$1"
+    echo "cmd_$1"
 }
 
 # Is $1 an implemented command
 iscmd() {
-    local f=$(cmdfunc "$1")
-    isfunction "$f"
+    isfunction "$(cmdfunc "$1")"
 }
 
 # Do command $1
@@ -56,86 +36,35 @@ log() {
     echo "$@"
 }
 
-# Is $1 older than any of $2, $3, ...
-isolder() {
-    local f="$1"
-    [ -f "$f" ] || return 0
-    shift
-    local g
-    for g; do
-        [ -f "$g" ] || continue
-        [ "$f" -ot "$g" ] && return 0
-    done
-    return 1
-}
-
-# Return file to include
-filetoinclude() {
-    local l="$1"
-    local h=${l#\#\#include }
-    echo "$h"
-}
-
-# Process include directives
-procincludes() {
-    local f="$1" # in
-    local g="$2" # out
-    local h l
-    while IFS="" read -r l || [ -n "$l" ]; do
-        case "$l" in
-            "##include "*)
-                h=$(filetoinclude "$l")
-                cat "$h"
-                ;;
-            *)
-                echo "$l"
-                ;;
-        esac
-    done <"$f" >"$g"
-}
-
+# Create a directory or die
 makedir() {
     mkdir -p "$1" 2>/dev/null || die MKDIR "$1"
 }
 
-prepare1() {
-    local f="$1"
-    local g="bin/${f##*/}"
-    isolder "$g" "$f" "${INCLUDES[@]}" || return 
-    log "prepare: $f"
-    makedir bin
-    procincludes "$f" "$g" || die MKFILE "$g"
-    chmod +x "$g"
-}
-
-do_prepare() {
-    local f
-    for f in "${SCRIPTS[@]}"; do
-        prepare1 "$f"
-    done
-}
-
-do_install() {
-    do_prepare
+cmd_install() {
     local bindir="$PREFIX/bin"
-    local libdir="$PREFIX/lib/bash"
-    local f g d
+    local libdir="$PREFIX/lib/$PROJECT"
+    local f d
+    # Binaries
     makedir "$bindir"
-    for f in "${SCRIPTS[@]}"; do
-        g="bin/${f##*/}"
-        log "install: $f"
-        install -m 755 "$g" "$bindir" || die INSTALL "$f"
-    done
     while read f; do
-        d=${f%/*}; d=${d#lib}; d="$libdir$d"
+        log "$f --> $bindir/"
+        install -m 755 "$f" "$bindir" || die INSTALL "$f"
+    done < <(find bin -type f | sort)
+    # Libraries
+    while read f; do
+        d=${f%/*}; d=${d#lib/$PROJECT}; d="$libdir$d"
         makedir "$d"
-        log "install: $f"
+        log "$f --> $d/"
         install -m 644 "$f" "$d" || die INSTALL "$f"
-    done < <(find lib -type f)
+    done < <(find lib -type f | sort)
 }
 
-do_clean() {
-    rm -rf bin
+cmd_list() {
+    local f
+    while read f; do 
+        "$f" --help | head -n 1
+    done < <(find bin -type f | sort)
 }
 
 showhelp() {
@@ -146,30 +75,20 @@ Usage
     setup [OPTION...] COMMAND
 
 Description
-    The following commands are supported: 
+    Supported commands:
 
-        prepare
-            prepare files for installation
-
-        install
-            install files
-
-        clear
-            clear prepared files 
+        install     install files
+        list        list available scripts
 
 Options
-    -p, --prefix DIR        Set prefix (default is $HOME)
+    -p, --prefix DIR        Set prefix (default is $HOME/.local)
 
 Examples
-    # Install to $HOME
+    # Install to $HOME/.local
     ./setup install
 
-    # Install to /usr/local - first in head.sh replace
-    #     LIBDIR="$HOME/lib/bash"
-    # with
-    #     LIBDIR="/usr/local/lib/bash"
-    ./setup prepare
-    sudo ./setup --prefix=/usr/local install
+    # Install to $HOME
+    ./setup install --prefix=$HOME
 EOF
 }
 
@@ -204,6 +123,5 @@ if [ "$COMMAND" = "install" ]; then
     [ -z "$PREFIX" ] && die MISSOPT '--prefix'
 fi
 
-setscripts "$@"
-docmd "$COMMAND" && log "done"
+docmd "$COMMAND"
 
