@@ -1,14 +1,12 @@
 # common.sh - common functions for bash programs
 
-# Program's basename and realpath
+PACKAGE="bash-scripts"
+CONFIGDIR="${XDG_CONFIG_HOME:-$HOME/.config}/$PACKAGE"
+DATADIR="${XDG_DATA_HOME:-$HOME/.local/share}/$PACKAGE"
+STATEDIR="${XDG_STATE_HOME:-$HOME/.local/state}/$PACKAGE"
 PROGNAME=$(basename -- "$0")
 REALPATH=$(realpath -- "$0")
-
-# Configuration directory
-CONFIGDIR="$HOME/.config/bash-scripts"
-
-# Should messages begin with the program's name?
-PRINTNAME=false
+PRINTNAME=false # Should messages begin with the program's name?
 
 # Print a message to stderr
 printmsg() {
@@ -185,9 +183,8 @@ fileext() {
     esac
 }
 
-# Create directory $1 if it does not already exist
-mkdirifne() {
-    [ -d "$1" ] && return
-    mkdir -p -- "$1" || die MKDIR "$1"
+# Create directory or die trying
+mkdirordie() {
+    mkdir -p "$1" || die MKDIR "$1"
 }
 

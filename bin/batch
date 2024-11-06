@@ -4,8 +4,7 @@ LIBDIR=$(cd "${BASH_SOURCE[0]%/*}/../lib/bash-scripts" 2>/dev/null && pwd); LIBD
 source "$LIBDIR/common.sh"
 
 # Defaults
-DATADIR="$HOME/.local/share/bash-scripts"
-SAVETOFILE="$DATADIR/batch"
+SAVETOFILE="$STATEDIR/batch"
 COMMANDS="add clear edit print dump move copy"
 FILES=()
 CLEAR=false
@@ -163,7 +162,7 @@ iscommand "$1" || die "$1 is not a command"
 COMMAND="$1"
 shift
 
-mkdirifne "$DATADIR"
+mkdirordie "$STATEDIR"
 
 cmd_$COMMAND "$@"
 
