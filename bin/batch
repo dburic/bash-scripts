@@ -4,61 +4,63 @@ LIBDIR=$(cd "${BASH_SOURCE[0]%/*}/../lib/bash-scripts" 2>/dev/null && pwd); LIBD
 source "$LIBDIR/common.sh"
 
 # Defaults
-DATADIR="$HOME/.local/share/scripts"
-LISTFILE="$DATADIR/remlist"
-COMMANDS="new add clear edit print dump copy move"
+DATADIR="$HOME/.local/share/bash-scripts"
+SAVETOFILE="$DATADIR/batch"
+COMMANDS="add clear edit print dump move copy"
 FILES=()
+CLEAR=false
+TARGETDIR="."
 
 # Show a nice help message
 showhelp() {
     cat <<"EOF"
-rem - remember location of files for later use
+batch - move, copy or otherwise process files in batches
 
 Usage
-    rem [COMMAND] [FILE...]
+    batch [OPTION...] [COMMAND] [FILE...]
 
 Description
-    The full path of files given as arguments or read from stdin is stored
-    in a list for later use.
+    A batch is a text file containing the full paths of files given as
+    arguments or read from stdin, one path per line. Files in a batch can
+    be moved or copied together to the same target directory, imitating the
+    cut/copy/paste functionality of graphical file managers. Other
+    operations are also possible by printing a batch and piping it to
+    xargs or some other program.
 
     Available commands:
 
-        new     Clear list and add files to list
-        add     Add files to list
-        clear   Clear list
-        edit    Edit list in text editor
-        print   Print list to stdout
-        dump    Print and clear list of files
-        copy    Copy files in list
-        move    Move files in list
+        add     Add files to batch
+        clear   Clear batch
+        edit    Edit batch in text editor
+        print   Print batch to stdout (default if no command is specified)
+        dump    Print and clear
+        move    Move files in batch
+        copy    Copy files in batch
 
 Options
-    -l, --list FILE         Use this file to store the list
+    -s, --save-to FILE          Use specified file to save batch
+    -c, --clear                 Clear batch before adding files
+    -t, --target-dir DIR        Target directory for move and copy
 
 Examples
-    # Remember some files that need to be moved, pwd = /dir1
-    rem new file1 file2
+    # Add files that need to be moved, cwd = /dir1
+    batch -c add file1 file2
 
-    # Optionally, go to another directory and remember more files
+    # Optionally, go to another directory and add more files
     cd /dir2
-    rem add filea fileb filec
+    batch add filea fileb filec
 
     # Go to the destination directory and move all files there
     cd /dira/dirb
-    rem dump | xargs -d\\n mv -t . 
+    batch dump | xargs -d\\n mv -t .
 
     # Same as above, without xargs
-    rem move
+    batch move
 EOF
 }
 
 iscommand() {
     inlist "$1" $COMMANDS
-}
-
-cmd_new() {
-    cmd_clear
-    cmd_add "$@"
 }
 
 filesfromargs() {
@@ -88,21 +90,21 @@ cmd_add() {
     filesfromargs "$@"
     [ -t 0 ] || filesfromlist "-"
     checkexist
-    realpath "${FILES[@]}" >> "$LISTFILE" || die "cannot add files to $LISTFILE"
+    $CLEAR && cmd_clear
+    realpath "${FILES[@]}" >> "$SAVETOFILE" || die "cannot add files to $SAVETOFILE"
 }
 
 cmd_clear() {
-    > "$LISTFILE" || die "cannot clear $LISTFILE"
+    > "$SAVETOFILE" || die "cannot clear $SAVETOFILE"
 }
 
 cmd_edit() {
     local editor="${EDITOR:-editor}"
-    "$editor" "$LISTFILE"
+    "$editor" "$SAVETOFILE"
 }
 
 cmd_print() {
-    [ -f "$LISTFILE" ] || die NOTFILE "$LISTFILE"
-    cat "$LISTFILE"
+    [ -f "$SAVETOFILE" ] && cat "$SAVETOFILE"
 }
 
 cmd_dump() {
@@ -110,20 +112,26 @@ cmd_dump() {
     cmd_clear
 }
 
+checktargetdir() {
+    [ -d "$TARGETDIR" ] || die NOTDIR "$TARGETDIR"
+}
+
 cmd_copy() {
-    cmd_dump | xargs -d\\n cp -t . 
+    checktargetdir
+    cmd_dump | xargs -d\\n cp -t "$TARGETDIR"
 }
 
 cmd_move() {
-    cmd_dump | xargs -d\\n mv -t .
+    checktargetdir
+    cmd_dump | xargs -d\\n mv -t "$TARGETDIR"
 }
 
 # Program starts here
 
 # Command line processing
 TEMP=$(getopt \
-        -l help,list: \
-        -o hl: \
+        -l help,save-to:,clear,target-dir: \
+        -o hs:ct: \
         -- "$@") || die INVOPT
 eval set -- "$TEMP"
 
@@ -132,8 +140,14 @@ while true; do
         -h|--help)
             showhelp
             exit;;
-        -l|--list)
-            LISTFILE="$2"
+        -s|--save-to)
+            SAVETOFILE="$2"
+            shift 2;;
+        -c|--clear)
+            CLEAR=true
+            shift;;
+        -t|--target-dir)
+            TARGETDIR="$2"
             shift 2;;
         --)
             shift
