@@ -9,12 +9,12 @@ This software is distributed under the MIT license. See LICENSE for details.
 
 ## List of scripts
 
+- batch     - move, copy or otherwise process files in batches
 - jump      - quickly jump to a directory
 - kwstart   - quickly start a file or URL via keyword
 - notes     - manage text notes
 - onevim    - edit files using only one Vim instance
 - par       - wrapper around xargs to allow easy execution of parallel jobs
-- rem       - remember location of files for later use
 - srename   - sequentially rename files
 - start     - a file and URL starter/launcher
 - zipdir    - archive contents of directories
