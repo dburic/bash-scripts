@@ -19,18 +19,21 @@ declare -a TAGS # Tags
 LIMIT="" # For layouts
 WHERE="" # Where expression for layouts
 ORDERBY="" # Order-by expression for layouts
-DELETEALL=false # Delete all tags
+DELETEALL=false # Delete all tags or notes
 HEADER="on" # Turn header on or off
 MODE="column" # SQLite output mode
 ALLOWEDMODES="ascii box csv column html insert json line list markdown qbox quote table tabs tcl"
+declare -a NOTEIDS # Note IDs
+NOTETEXT="" # Note text
 
 # User-friendly option specification for command line parsing
 OPTIONS="
 h/help
-l/layout: H/header: M/mode:
-p/priority: d/due-date: C/created-at: t/tags: D/description:
-W/where: O/order-by: L/limit: 
+D/description: p/priority: d/due-date: C/created-at: t/tag:
+l/layout: W/where: O/order-by: L/limit:
+H/header: M/mode:
 a/all
+n/note-id: N/note-text:
 "
 
 # Database tables, columns and their types
@@ -49,6 +52,12 @@ COLUMNS["tag"]="
 task_id integer
 tag text
 "
+COLUMNS["note"]="
+id integer
+task_id integer
+created_at timestamp
+note text
+"
 
 adderrormsgs \
     DATE 'invalid date %s' \
@@ -58,14 +67,15 @@ adderrormsgs \
     LAYOUT '%s is not a layout' \
     LIMIT 'invalid limit %s' \
     MODE 'invalid mode %s' \
-    NOALL 'use --all to delete tags' \
+    NOALL 'use --all to delete all %s' \
     NODBFILE 'database file not found %s' \
     NOTAGS 'missing tags' \
-    NOTASKS 'missing tasks' \
+    NOTETEXT 'missing note text' \
     SQLITE 'SQLite failed in line %d' \
     TASKDESC 'missing task description' \
-    TASKID 'invalid task id %s' \
     TIMESTAMP 'invalid timestamp %s' \
+    NOIDS 'missing %s id' \
+    RECID 'invalid %s id %s' \
 
 # --- Generic functions ------------------------------------------------
 
@@ -124,7 +134,7 @@ sqlescape() {
 
 # Quote value value $2 of type $1
 sqlquote() {
-    case "$1" in 
+    case "$1" in
         integer) echo "$2";;
         *) echo "'$2'";;
     esac
@@ -148,7 +158,8 @@ create table task (
     due_date date,
     done integer check (done in (0, 1)) default 0,
     done_at timestamp,
-    created_at timestamp default current_timestamp
+    created_at timestamp default current_timestamp,
+    has_notes integer check (has_notes in (0, 1)) default 0
 );
 
 create table tag (
@@ -158,17 +169,45 @@ create table tag (
     foreign key (task_id) references task(id) on delete cascade
 );
 
+create table note (
+    id integer primary key autoincrement,
+    task_id integer not null,
+    created_at timestamp default current_timestamp,
+    note text not null,
+    foreign key (task_id) references task(id) on delete cascade
+);
+
 create trigger update_done_at
 after update on task
 for each row
 begin
-    update task
-    set done_at = case
+    update task set
+        done_at = case
             when new.done = 0 then null
             else current_timestamp
         end
     where id = new.id;
 end;
+
+create trigger update_has_notes_on_insert
+after insert on note
+begin
+    update task set
+        has_notes = 1
+    where id = new.task_id;
+end;
+
+create trigger update_has_notes_on_delete
+after delete on note
+begin
+    update task set
+        has_notes = case
+            when (select count(*) from note where task_id = old.task_id) = 0 then 0
+            else 1
+        end
+    where id = old.task_id;
+end;
+
 EOF
 }
 
@@ -226,7 +265,7 @@ sqlinsertmulti() {
     shift # --
 
     # Rows of values
-    while [ $# -gt 0 ]; do 
+    while [ $# -gt 0 ]; do
         values=()
         k=0 # Number of values in row - must match number of columns
         while [ $# -gt 0 ]; do
@@ -287,6 +326,18 @@ sqldelete() {
     printf 'delete from %s where %s;\n' "$1" "$2"
 }
 
+# In:   tab col val_1 ... val_n
+# Out:  delete from tab where col in (val_1, ..., val_n);
+sqldeletebycolvals() {
+    [ $# -ge 3 ] || die FUNCARGS $LINENO
+    local tab="$1"
+    local col="$2"
+    shift 2
+    local cond
+    printf -v cond '%s in (%s)' "$col" "$(joinargs ", " "$@")"
+    sqldelete "$tab" "$cond"
+}
+
 sqllastrowid() {
     printf 'select last_insert_rowid();\n'
 }
@@ -314,9 +365,7 @@ sqltaskdone() {
 # In:   id_1 ... id_n
 # Out:  delete from task where id in (id_1, ..., id_n);
 sqltaskdelete() {
-    local cond
-    printf -v cond 'id in (%s)' "$(joinargs ", " "$@")"
-    sqldelete task "$cond"
+    sqldeletebycolvals task id "$@"
 }
 
 sqltaskupdate() {
@@ -344,7 +393,7 @@ sqltagadd() {
     done
     [ -n "$1" ] || die FUNCARGS $LINENO
     shift
-    while [ -n "$1" ]; do 
+    while [ -n "$1" ]; do
         tags+=("$1")
         shift
     done
@@ -362,12 +411,7 @@ sqltagadd() {
 # In:   col val_1 ... val_n
 # Out:  delete from tag where col in (val_1, ..., val_n);
 sqltagdelete() {
-    [ $# -ge 2 ] || die FUNCARGS $LINENO
-    local col="$1"
-    shift
-    local cond
-    printf -v cond '%s in (%s)' "$col" "$(joinargs ", " "$@")"
-    sqldelete tag "$cond"
+    sqldeletebycolvals tag "$@"
 }
 
 # In:   id_1 ... id_m -- tag_1 ... tag_n
@@ -384,7 +428,7 @@ sqltagdeletepairs() {
     done
     [ -n "$1" ] || die FUNCARGS $LINENO
     shift
-    while [ -n "$1" ]; do 
+    while [ -n "$1" ]; do
         tags+=("$1")
         shift
     done
@@ -400,13 +444,44 @@ sqltagdeletepairs() {
     sqldelete tag "$(joinargs " or " "${conds[@]}")"
 }
 
+# In:   notetext id_1 ... id_n
+# Out:  insert into note (task_id, note) value (id_1, notetext), ..., (id_n, notetext);
+sqlnoteadd() {
+    [ $# -ge 2 ] || die FUNCARGS $LINENO
+    local notetext="$1"
+    shift
+    local id
+    declare -a values
+    for id; do
+        values+=("$id")
+        values+=("$notetext")
+    done
+    sqlinsertmulti note task_id note -- "${values[@]}"
+}
+
+# In:   col val_1 ... val_n
+# Out:  delete from note where col in (val_1, ..., val_n);
+sqlnotedelete() {
+    sqldeletebycolvals note "$@"
+}
+
+# In:   notetext id_1 ... id_n
+# Out:  update note set note = notetext where id in (id_1, ..., id_n);
+sqlnoteupdate() {
+    local notetext="$1"
+    shift
+    local cond
+    printf -v cond 'id in (%s)' "$(joinargs ", " "$@")"
+    sqlupdate note "$cond" note "$notetext"
+}
+
 # --- Layouts ----------------------------------------------------------
 
 SELECT="\
 select %s
 from %s
 where %s
-group by %s
+%s
 order by %s
 %s
 ;
@@ -420,14 +495,16 @@ layout() {
     local prefix="$1"
     local layout="$2"
     islayout "$prefix" "$layout" || die LAYOUT "$layout"
-    local lf="$prefix$layout"
+    local lf="$prefix$layout" # Layout function
+    local groupby=$($lf groupby)
+    [ -n "$groupby" ] && groupby="group by $groupby"
     local limit=$($lf limit)
     [ -n "$limit" ] && limit="limit $limit"
     printf "$SELECT" \
         "$($lf columns)" \
         "$($lf from)" \
         "$($lf where)" \
-        "$($lf groupby)" \
+        "$groupby" \
         "$($lf orderby)" \
         "$limit"
 
@@ -435,7 +512,7 @@ layout() {
 
 layout_default() {
     case "$1" in
-        columns)    echo "id, description, priority, due_date, created_at, group_concat(tag, ' ') tags";;
+        columns)    echo "id, description, priority, due_date, created_at, iif(has_notes = 0, ' ', '*') notes, group_concat(tag, ' ') tags";;
         from)       echo "task left join tag on id = task_id";;
         where)      echo "${WHERE:-done = 0}";;
         groupby)    echo "id";;
@@ -447,7 +524,7 @@ layout_default() {
 
 layout_all() {
     case "$1" in
-        columns)    echo "id, description, priority, due_date, done, done_at, created_at, group_concat(tag, ' ') tags";;
+        columns)    echo "id, description, priority, due_date, iif(done = 0, ' ', '*') done, done_at, created_at, iif(has_notes = 0, ' ', '*') notes, group_concat(tag, ' ') tags";;
         where)      echo "${WHERE:-1}";;
         *)          layout_default "$1";;
     esac
@@ -472,6 +549,19 @@ layout_tag_usage() {
     esac
 }
 
+layout_note_default() {
+    case "$1" in
+        columns)    echo "id, task_id, created_at, note";;
+        from)       echo "note";;
+        where)      echo "$WHERE";;
+        groupby)    echo "";;
+        orderby)    echo "${ORDERBY:-task_id, created_at}";;
+        limit)      echo "$LIMIT";;
+        *)          die LAYOUTARG "$1";;
+    esac
+}
+
+
 # --- All other functions ----------------------------------------------
 
 iscommand() {
@@ -482,30 +572,41 @@ sqlite() {
     $SQLITE "$DBFILE" -cmd 'pragma foreign_keys = on' "$@"
 }
 
-checktaskids() {
-    local id res
+sqlitelist() {
+    sqlite -cmd ".header $HEADER" -cmd ".mode $MODE"
+}
 
-    [ $# -gt 0 ] || die NOTASKS
+checkids() {
+    local table id res
 
-    for id; do ispsint "$id" || die TASKID "$id"; done
+    table="$1"
+    shift
 
-    res=$(printf 'select id from task where id in (%s);' "$(joinargs ", " "$@")" | sqlite)
+    [ $# -gt 0 ] || die NOIDS "$table"
+
+    for id; do ispsint "$id" || die RECID "$table" "$id"; done
+
+    res=$(printf 'select id from %s where id in (%s);' "$table" "$(joinargs ", " "$@")" | sqlite)
     [ $? -eq 0 ] || die SQLITE $LINENO
 
-    mapfile -t existingids <<<"$res" 
+    mapfile -t existingids <<<"$res"
 
     for id; do
-        inlist $id "${existingids[@]}" || die TASKID "$id"
+        inlist $id "${existingids[@]}" || die RECID "$table" "$id"
     done
+}
+
+checktaskids() {
+    checkids task "$@"
+}
+
+checknoteids() {
+    checkids note "$@"
 }
 
 cmd_init() {
     [ -f "$DBFILE" ] && die EXIST "$DBFILE"
     sqlcreatedb | sqlite || die SQLITE $LINENO
-}
-
-cmd_list() {
-    layout "layout_" "$LAYOUT" | sqlite -cmd ".header $HEADER" -cmd ".mode $MODE" || die SQLITE $LINENO
 }
 
 cmd_add() {
@@ -526,16 +627,16 @@ cmd_add() {
     fi
 }
 
+cmd_list() {
+    layout "layout_" "$LAYOUT" | sqlitelist || die SQLITE $LINENO
+}
+
 cmd_done() {
     sqltaskdone 1 "$@" | sqlite || die SQLITE $LINENO
 }
 
 cmd_not-done() {
     sqltaskdone 0 "$@" | sqlite || die SQLITE $LINENO
-}
-
-cmd_delete() {
-    sqltaskdelete "$@" | sqlite || die SQLITE $LINENO
 }
 
 cmd_update() {
@@ -546,6 +647,10 @@ cmd_update() {
     if [ ${#TAGS[@]} -gt 0 ]; then
         { sqltagdelete task_id "$@"; sqltagadd "$@" -- "${TAGS[@]}"; } | sqlite || die SQLITE $LINENO
     fi
+}
+
+cmd_delete() {
+    sqltaskdelete "$@" | sqlite || die SQLITE $LINENO
 }
 
 cmd_dbfile() {
@@ -565,12 +670,12 @@ cmd_tag() {
     "cmd_tag_$SUBCOMMAND" "$@"
 }
 
-cmd_tag_list() {
-    layout "layout_tag_" "$LAYOUT" | sqlite -header -column || die SQLITE $LINENO
-}
-
 cmd_tag_add() {
     sqltagadd "$@" -- "${TAGS[@]}" | sqlite || die SQLITE $LINENO
+}
+
+cmd_tag_list() {
+    layout "layout_tag_" "$LAYOUT" | sqlitelist || die SQLITE $LINENO
 }
 
 cmd_tag_update() {
@@ -579,16 +684,63 @@ cmd_tag_update() {
 
 cmd_tag_delete() {
     if [ $# -eq 0 ]; then # No tasks on command line - delete given tags
-        $DELETEALL || die NOALL
+        $DELETEALL || die NOALL tags
         [ ${#TAGS[@]} -gt 0 ] || die NOTAGS
         sqltagdelete tag "${TAGS[@]}" | sqlite || die SQLITE $LINENO
     elif [ ${#TAGS[@]} -eq 0 ]; then # No tags on command line -- delete all tags for given tasks
-        $DELETEALL || die NOALL
+        $DELETEALL || die NOALL tags
         checktaskids "$@"
-        sqltagdelete task_id "$@"
+        sqltagdelete task_id "$@" | sqlite || die SQLITE $LINENO
     else # Tasks and tags present on command line - delete in pairs
         checktaskids "$@"
         sqltagdeletepairs "$@" -- "${TAGS[@]}" | sqlite || die SQLITE $LINENO
+    fi
+}
+
+cmd_note() {
+    if [ -n "$1" ]; then
+        iscommand "cmd_note_" "$1" || die NOTCMD "$1"
+        SUBCOMMAND="$1"
+        shift
+    else
+        SUBCOMMAND="list"
+    fi
+
+    "cmd_note_$SUBCOMMAND" "$@"
+}
+
+cmd_note_add() {
+    checktaskids "$@"
+    [ -n "$NOTETEXT" ] || die NOTETEXT
+    sqlnoteadd "$NOTETEXT" "$@" | sqlite || die SQLITE $LINENO
+}
+
+cmd_note_list() {
+    if [ $# -gt 0 ]; then
+        checktaskids "$@"
+        WHERE=$(printf "task_id in (%s)" "$(joinargs ", " "$@")")
+    else
+        WHERE="${WHERE:-1}"
+    fi
+    layout "layout_note_" "$LAYOUT" | sqlitelist || die SQLITE $LINENO
+}
+
+cmd_note_update() {
+    checknoteids "${NOTEIDS[@]}"
+    [ -n "$NOTETEXT" ] || die NOTETEXT
+    sqlnoteupdate "$NOTETEXT" "${NOTEIDS[@]}" | sqlite || die SQLITE $LINENO
+}
+
+cmd_note_delete() {
+    if [ ${#NOTEIDS[@]} -gt 0 ]; then
+        checknoteids "${NOTEIDS[@]}"
+        sqlnotedelete id "${NOTEIDS[@]}" | sqlite || die SQLITE $LINENO
+    elif [ $# -gt 0 ]; then
+        $DELETEALL || die NOALL notes
+        checktaskids "$@"
+        sqlnotedelete task_id "$@" | sqlite || die SQLITE $LINENO
+    else
+        die NOIDS "note or task"
     fi
 }
 
@@ -606,9 +758,9 @@ Usage
 
 Description
     This is a simple task/todo manager based on SQLite. Tasks have a
-    description, priority, due date and tags. Tasks are identified in
-    commands by their identifier. Customizable layouts are used to list
-    tasks and tags.
+    description, priority and a due date. Tags and notes are also
+    supported. Tasks are identified in commands by their identifier.
+    Customizable layouts are used to list tasks, tags and notes.
 
 Commands
     init            Initialize database
@@ -618,22 +770,25 @@ Commands
     delete ID...    Delete tasks
     done ID...      Mark tasks as done
     not-done ID...  Mark tasks as not-done
-    tag [ID...]     Tag maintenance (add, list, update, delete)
+    tag add|list|update|delete [ID...]      Tags maintenance
+    note add|list|update|delete [ID...]     Notes maintenance
 
 Options
     -h, --help
     -D, --description
-    -l, --layout LAYOUT
     -p, --priority PRIORITY
     -d, --due-date DATE
-    -c, --created-at TIMESTAMP
-    -t, --tags TAGS
-    -w, --where WHERE
-    -o, --order-by ORDERBY
-    -n, --limit N
-    -a, --all
+    -C, --created-at TIMESTAMP
+    -t, --tag TAGS
+    -l, --layout LAYOUT
+    -W, --where WHERE
+    -O, --order-by ORDERBY
+    -L, --limit N
     -H, --header on|off
     -M, --mode MODE
+    -a, --all
+    -n, --note-id IDS
+    -N, --notex-text NOTETEXT
 
 Examples
     alias t=tasks
@@ -651,8 +806,8 @@ Examples
     t list -l all
 
     # Mark tasks done or not-done
-    t done 1 2
-    t not-done 2
+    t done 1 2; t
+    t not-done 2; t -l all
 
     # Update tasks
     t update -d "next monday" 3
@@ -660,13 +815,33 @@ Examples
     # Delete tasks
     t delete 1
 
-    # Tag maintenance
+    # Tags
+    t tag add -t "active project" 2 3
     t tag list
     t tag list -l usage
-    t tag add -t "active project" 2 3
     t tag delete -t project 3
     t tag delete --all 3
+
+    # Notes
+    t note add -N "Compare with last year" 3
+    t note add -N "Prepare slides" 3
+    t note list 3
+    t note update -N "Prepare and send slides" -n 2
+    t note add -N "Another note" 3
+    t note delete -n "2 3"
 EOF
+}
+
+addtags() {
+    declare -a t
+    read -r -a t <<<"$1"
+    TAGS+=("${t[@]}")
+}
+
+addnoteids() {
+    declare -a n
+    read -r -a n <<<"$1"
+    NOTEIDS+=("${n[@]}")
 }
 
 readconfigfile() {
@@ -706,8 +881,8 @@ main() {
                 CREATEDAT=$(date --date "$2" '+%Y-%m-%d %H:%M:%S' 2>/dev/null)
                 [ $? -eq 0 ] || die TIMESTAMP "$2"
                 shift 2;;
-            -t|--tags)
-                read -r -a TAGS <<<"$2"
+            -t|--tag)
+                addtags "$2"
                 shift 2;;
             -D|--description)
                 DESCRIPTION="$2"
@@ -721,6 +896,12 @@ main() {
             -L|--limit)
                 ispsint "$2" || die LIMIT "$2"
                 LIMIT="$2"
+                shift 2;;
+            -n|--note-id)
+                addnoteids "$2"
+                shift 2;;
+            -N|--note-text)
+                NOTETEXT="$2"
                 shift 2;;
             -a|--all)
                 DELETEALL=true
@@ -743,7 +924,7 @@ main() {
     fi
 
     [ "$COMMAND" = "init" -o -f "$DBFILE" ] || die NODBFILE "$DBFILE"
-    inlist "$COMMAND" "init" "list" "add" "tag" "dbfile" || checktaskids "$@"
+    inlist "$COMMAND" "init" "list" "add" "tag" "note" "dbfile" "test" || checktaskids "$@"
 
     readconfigfile
 
