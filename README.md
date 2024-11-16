@@ -16,7 +16,8 @@ This software is distributed under the MIT license. See LICENSE for details.
 - onevim    - edit files using only one Vim instance
 - par       - wrapper around xargs to allow easy execution of parallel jobs
 - srename   - sequentially rename files
-- start     - a file and URL starter/launcher
+- start     - file and URL starter/launcher
+- tasks     - simple task/todo manager using SQLite
 - zipdir    - archive contents of directories
 
 ## Installation

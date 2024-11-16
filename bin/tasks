@@ -1,0 +1,756 @@
+#/bin/bash
+
+LIBDIR=$(cd "${BASH_SOURCE[0]%/*}/../lib/bash-scripts" 2>/dev/null && pwd); LIBDIR=${LIBDIR:-.}
+source "$LIBDIR/common.sh"
+
+# --- Globals ----------------------------------------------------------
+
+CONFIGFILE="$CONFIGDIR/tasks.conf"
+SQLITE="sqlite3" # Path to SQLite executable
+DBFILE="$DATADIR/tasks.db" # SQLite database
+DESCRIPTION="" # Task description
+PRIORITY="" # Task priority
+DUEDATE="" # Task due date
+CREATEDAT="" # Task creation date
+LAYOUT="default" # Layout to use when listing tasks
+COMMAND="" # Command given on command line
+SUBCOMMAND="" # Subcommand given on command line
+declare -a TAGS # Tags
+LIMIT="" # For layouts
+WHERE="" # Where expression for layouts
+ORDERBY="" # Order-by expression for layouts
+DELETEALL=false # Delete all tags
+HEADER="on" # Turn header on or off
+MODE="column" # SQLite output mode
+ALLOWEDMODES="ascii box csv column html insert json line list markdown qbox quote table tabs tcl"
+
+# User-friendly option specification for command line parsing
+OPTIONS="
+h/help
+l/layout: H/header: M/mode:
+p/priority: d/due-date: C/created-at: t/tags: D/description:
+W/where: O/order-by: L/limit: 
+a/all
+"
+
+# Database tables, columns and their types
+declare -A COLUMNS
+
+COLUMNS["task"]="
+id integer
+description text
+priority text
+due_date date
+done integer
+done_at timestamp
+created_at timestamp
+"
+COLUMNS["tag"]="
+task_id integer
+tag text
+"
+
+adderrormsgs \
+    DATE 'invalid date %s' \
+    FUNCARGS 'invalid function arguments in line %d' \
+    HEADER 'header can be only on or off' \
+    LAYOUTARG 'invalid layout argument %s' \
+    LAYOUT '%s is not a layout' \
+    LIMIT 'invalid limit %s' \
+    MODE 'invalid mode %s' \
+    NOALL 'use --all to delete tags' \
+    NODBFILE 'database file not found %s' \
+    NOTAGS 'missing tags' \
+    NOTASKS 'missing tasks' \
+    SQLITE 'SQLite failed in line %d' \
+    TASKDESC 'missing task description' \
+    TASKID 'invalid task id %s' \
+    TIMESTAMP 'invalid timestamp %s' \
+
+# --- Generic functions ------------------------------------------------
+
+# Prepare short and long options for getopt
+setopts() {
+    local line s="" l=""
+    while read line; do
+        [ -n "$line" ] || continue # Skip empty lines
+        set -- $line # Separate line into words
+        while [ -n "$1" ]; do
+            case "$1" in
+                # Long and short option with value
+                */*:)   s+="${1%/*}:"; [ -n "$l" ] && l+=","; l+="${1#*/}";;
+                # Long and short option without value
+                */*)    s+="${1%/*}";  [ -n "$l" ] && l+=","; l+="${1#*/}";;
+                # Only short option with or without value
+                *)      s+="$1";;
+            esac
+            shift
+        done
+    done <<<"$OPTIONS"
+    SHORTOPTS="$s"
+    LONGOPTS="$l"
+}
+
+# Join $2, $3, ... using separator $1
+joinargs() {
+    local sep="$1" res="" val
+    shift
+    for val; do
+        [ -z "$res" ] && res="$val" || res+="$sep$val"
+    done
+    echo "$res"
+}
+
+# --- SQL functions ----------------------------------------------------
+
+# Type of column $2 in table $1
+coltype() {
+    local col typ
+    while read col typ; do
+        if [ "$col" = "$2" ]; then
+            echo "$typ"
+            break
+        fi
+    done <<<"${COLUMNS["$1"]}"
+}
+
+# Escape value $2 of type $1
+sqlescape() {
+    case "$1" in
+        text) echo "${2//\'/\'\'}";;
+        *) echo "$2";;
+    esac
+}
+
+# Quote value value $2 of type $1
+sqlquote() {
+    case "$1" in 
+        integer) echo "$2";;
+        *) echo "'$2'";;
+    esac
+}
+
+# Prepare (escape and quote) value $2 of type $1 for SQL command
+sqlval() {
+    if [ "$2" = "NULL" ]; then
+        echo 'NULL'
+    else
+        sqlquote "$1" "$(sqlescape "$1" "$2")"
+    fi
+}
+
+sqlcreatedb() {
+    cat <<"EOF"
+create table task (
+    id integer primary key autoincrement,
+    description text not null,
+    priority text,
+    due_date date,
+    done integer check (done in (0, 1)) default 0,
+    done_at timestamp,
+    created_at timestamp default current_timestamp
+);
+
+create table tag (
+    task_id integer,
+    tag text not null,
+    primary key (task_id, tag),
+    foreign key (task_id) references task(id) on delete cascade
+);
+
+create trigger update_done_at
+after update on task
+for each row
+begin
+    update task
+    set done_at = case
+            when new.done = 0 then null
+            else current_timestamp
+        end
+    where id = new.id;
+end;
+EOF
+}
+
+# In:   tab col_1 val_1 ... col_n val_n
+# Out:  insert into tab (col_1, ..., col_n) values (val_1, ... val_n)
+sqlinsert() {
+    [ $# -ge 3 ] || die FUNCARGS $LINENO
+
+    local tab col val typ
+    declare -a columns values
+
+    tab="$1"
+    shift
+
+    # $1, $2, ... is col_1, val_1, ...
+    [ $[ $# % 2 ] -eq 0 ] || die FUNCARGS $LINENO
+    while [ $# -gt 0 ]; do
+        col="$1"
+        typ=$(coltype "$tab" "$col")
+        val=$(sqlval "$typ" "$2")
+        columns+=("$col")
+        values+=("$val")
+        shift 2
+    done
+
+    printf 'insert into %s (%s) values (%s);\n' \
+        "$tab" \
+        "$(joinargs ", " "${columns[@]}")" \
+        "$(joinargs ", " "${values[@]}")"
+}
+
+# In:   tab col_1 ... col_n -- val_11 ... val_1n ... val_m1 ... val_mn
+# Out:  insert into tab (col_1, ... col_n) values (val_11, ..., val_1n), ..., (val_m1, ..., val_mn);
+sqlinsertmulti() {
+    [ $# -ge 4 ] || die FUNCARGS $LINENO
+
+    local tab col val typ
+    declare -a columns types values rows
+    local n k
+
+    # Table
+    tab="$1"
+    shift
+
+    # Columns and types
+    n=0 # Number of columns
+    while [ "$1" != "--" -a $# -gt 0 ]; do
+        col="$1"
+        columns+=("$col")
+        types+=("$(coltype "$tab" "$col")")
+        n=$[ n + 1 ]
+        shift
+    done
+    [ $# -eq 0 ] && die FUNCARGS $LINENO
+    shift # --
+
+    # Rows of values
+    while [ $# -gt 0 ]; do 
+        values=()
+        k=0 # Number of values in row - must match number of columns
+        while [ $# -gt 0 ]; do
+            [ $k -le $n ] || die FUNCARGS $LINENO
+            typ="${types[$k]}"
+            val=$(sqlval "$typ" "$1")
+            values+=("$val")
+            k=$[ k + 1 ]
+            shift
+            [ $k -eq $n ] && break
+        done
+        [ $k -eq $n ] || die FUNCARGS $LINENO
+        rows+=("($(joinargs ", " "${values[@]}"))")
+    done
+
+    printf 'insert into %s (%s) values %s;\n' \
+        "$tab" \
+        "$(joinargs ", " "${columns[@]}")" \
+        "$(joinargs ", " "${rows[@]}")"
+
+}
+
+# In:   tab cond col_1 val_1 ... col_n val_n
+# Out:  update tab set col_1 = val_1, ..., col_n = val_n where cond;
+sqlupdate() {
+    [ $# -ge 4 ] || die FUNCARGS $LINENO
+
+    local tab col val typ cond
+    declare -a assignments
+
+    tab="$1"
+    shift
+
+    # $1 is cond
+    cond="$1"
+    shift
+
+    # $1, $2, ... is col_1, val_1, ...
+    [ $[ $# % 2 ] -eq 0 ] || die FUNCARGS $LINENO
+    while [ $# -gt 0 ]; do
+        col="$1"
+        typ=$(coltype "$tab" "$col")
+        val=$(sqlval "$typ" "$2")
+        assignments+=("$col = $val")
+        shift 2
+    done
+
+    printf 'update %s set %s where %s;\n' \
+        "$tab" \
+        "$(joinargs ", " "${assignments[@]}")" \
+        "$cond"
+}
+
+# In:   tab cond
+# Out:  delete from tab where cond
+sqldelete() {
+    [ $# -eq 2 ] || die FUNCARGS $LINENO
+    printf 'delete from %s where %s;\n' "$1" "$2"
+}
+
+sqllastrowid() {
+    printf 'select last_insert_rowid();\n'
+}
+
+# In:   $1
+# Out:  insert into task (description[, priority][, due_date]) values ($1[, $PRIORITY][, $DUEDATE]);
+sqltaskadd() {
+    declare -a args
+    args=(description "$1")
+    [ -n "$PRIORITY" ] && args+=("priority" "$PRIORITY")
+    [ -n "$DUEDATE" ] && args+=("due_date" "$DUEDATE")
+    sqlinsert task "${args[@]}"
+}
+
+# In:   val id_1 ... id_n
+# Out:  update task set done = val where id in (id_1, ..., id_n);
+sqltaskdone() {
+    local val cond
+    val="$1"
+    shift
+    printf -v cond 'id in (%s)' "$(joinargs ", " "$@")"
+    sqlupdate task "$cond" done "$val"
+}
+
+# In:   id_1 ... id_n
+# Out:  delete from task where id in (id_1, ..., id_n);
+sqltaskdelete() {
+    local cond
+    printf -v cond 'id in (%s)' "$(joinargs ", " "$@")"
+    sqldelete task "$cond"
+}
+
+sqltaskupdate() {
+    local cond
+    declare -a args
+    printf -v cond 'id in (%s)' "$(joinargs ", " "$@")"
+    [ -n "$DESCRIPTION" ] && args+=("description" "$DESCRIPTION")
+    [ -n "$PRIORITY" ] && args+=("priority" "$PRIORITY")
+    [ -n "$DUEDATE" ] && args+=("due_date" "$DUEDATE")
+    [ ${#args[@]} -eq 0 ] && return
+    sqlupdate task "$cond" "${args[@]}"
+}
+
+# In:   id_1 ... id_m -- tag_1 ... tag_n
+# Out:  insert into tag (id, tag) values (id_1, tag_1), ..., (id1, tag_n), ..., (id_m, tag_1), ..., (id_m, tag_n);
+sqltagadd() {
+    [ $# -ge 3 ] || die FUNCARGS $LINENO
+
+    declare -a ids tags values
+    local i t
+
+    while [ -n "$1" -a "$1" != "--" ]; do
+        ids+=("$1")
+        shift
+    done
+    [ -n "$1" ] || die FUNCARGS $LINENO
+    shift
+    while [ -n "$1" ]; do 
+        tags+=("$1")
+        shift
+    done
+
+    for i in "${ids[@]}"; do
+        for t in "${tags[@]}"; do
+            values+=("$i")
+            values+=("$t")
+        done
+    done
+
+    sqlinsertmulti tag task_id tag -- "${values[@]}" | sed 's/^insert/insert or ignore/';
+}
+
+# In:   col val_1 ... val_n
+# Out:  delete from tag where col in (val_1, ..., val_n);
+sqltagdelete() {
+    [ $# -ge 2 ] || die FUNCARGS $LINENO
+    local col="$1"
+    shift
+    local cond
+    printf -v cond '%s in (%s)' "$col" "$(joinargs ", " "$@")"
+    sqldelete tag "$cond"
+}
+
+# In:   id_1 ... id_m -- tag_1 ... tag_n
+# Out:  delete from tag where (task_id = id_1 and tag = tag_1) or ... or (task_id = id_m and tag = tag_n);
+sqltagdeletepairs() {
+    [ $# -ge 3 ] || die FUNCARGS $LINENO
+
+    declare -a ids tags conds
+    local i t typ
+
+    while [ -n "$1" -a "$1" != "--" ]; do
+        ids+=("$1")
+        shift
+    done
+    [ -n "$1" ] || die FUNCARGS $LINENO
+    shift
+    while [ -n "$1" ]; do 
+        tags+=("$1")
+        shift
+    done
+
+    typ=$(coltype tag tag)
+    for i in "${ids[@]}"; do
+        for t in "${tags[@]}"; do
+            t=$(sqlval "$typ" "$t")
+            conds+=("(task_id = $i and tag = $t)");
+        done
+    done
+
+    sqldelete tag "$(joinargs " or " "${conds[@]}")"
+}
+
+# --- Layouts ----------------------------------------------------------
+
+SELECT="\
+select %s
+from %s
+where %s
+group by %s
+order by %s
+%s
+;
+"
+
+islayout() {
+    grep -q '^[a-z-]\+$' <<<"$2" && isfunction "$1$2"
+}
+
+layout() {
+    local prefix="$1"
+    local layout="$2"
+    islayout "$prefix" "$layout" || die LAYOUT "$layout"
+    local lf="$prefix$layout"
+    local limit=$($lf limit)
+    [ -n "$limit" ] && limit="limit $limit"
+    printf "$SELECT" \
+        "$($lf columns)" \
+        "$($lf from)" \
+        "$($lf where)" \
+        "$($lf groupby)" \
+        "$($lf orderby)" \
+        "$limit"
+
+}
+
+layout_default() {
+    case "$1" in
+        columns)    echo "id, description, priority, due_date, created_at, group_concat(tag, ' ') tags";;
+        from)       echo "task left join tag on id = task_id";;
+        where)      echo "${WHERE:-done = 0}";;
+        groupby)    echo "id";;
+        orderby)    echo "${ORDERBY:-created_at}";;
+        limit)      echo "$LIMIT";;
+        *)          die LAYOUTARG "$1";;
+    esac
+}
+
+layout_all() {
+    case "$1" in
+        columns)    echo "id, description, priority, due_date, done, done_at, created_at, group_concat(tag, ' ') tags";;
+        where)      echo "${WHERE:-1}";;
+        *)          layout_default "$1";;
+    esac
+}
+
+layout_tag_default() {
+    case "$1" in
+        columns)    echo "tag, count(*) count";;
+        from)       echo "tag";;
+        where)      echo "${WHERE:-1}";;
+        groupby)    echo "tag";;
+        orderby)    echo "${ORDERBY:-tag}";;
+        limit)      echo "$LIMIT";;
+        *)          die LAYOUTARG "$1";;
+    esac
+}
+
+layout_tag_usage() {
+    case "$1" in
+        orderby)    echo "${ORDERBY:-count desc}";;
+        *)          layout_tag_default "$1";;
+    esac
+}
+
+# --- All other functions ----------------------------------------------
+
+iscommand() {
+    grep -q '^[a-z-]\+$' <<<"$2" && isfunction "$1$2"
+}
+
+sqlite() {
+    $SQLITE "$DBFILE" -cmd 'pragma foreign_keys = on' "$@"
+}
+
+checktaskids() {
+    local id res
+
+    [ $# -gt 0 ] || die NOTASKS
+
+    for id; do ispsint "$id" || die TASKID "$id"; done
+
+    res=$(printf 'select id from task where id in (%s);' "$(joinargs ", " "$@")" | sqlite)
+    [ $? -eq 0 ] || die SQLITE $LINENO
+
+    mapfile -t existingids <<<"$res" 
+
+    for id; do
+        inlist $id "${existingids[@]}" || die TASKID "$id"
+    done
+}
+
+cmd_init() {
+    [ -f "$DBFILE" ] && die EXIST "$DBFILE"
+    sqlcreatedb | sqlite || die SQLITE $LINENO
+}
+
+cmd_list() {
+    layout "layout_" "$LAYOUT" | sqlite -cmd ".header $HEADER" -cmd ".mode $MODE" || die SQLITE $LINENO
+}
+
+cmd_add() {
+    local id description
+
+    if [ -n "$DESCRIPTION" ]; then
+        description="$DESCRIPTION"
+    else
+        description="$@"
+        [ -n "$description" ] || die TASKDESC
+    fi
+
+    id=$( { sqltaskadd "$description"; sqllastrowid; } | sqlite)
+    [ $? -ne 0 ] && die SQLITE $LINENO
+
+    if [ ${#TAGS[@]} -gt 0 ]; then
+        sqltagadd $id -- "${TAGS[@]}" | sqlite || die SQLITE $LINENO
+    fi
+}
+
+cmd_done() {
+    sqltaskdone 1 "$@" | sqlite || die SQLITE $LINENO
+}
+
+cmd_not-done() {
+    sqltaskdone 0 "$@" | sqlite || die SQLITE $LINENO
+}
+
+cmd_delete() {
+    sqltaskdelete "$@" | sqlite || die SQLITE $LINENO
+}
+
+cmd_update() {
+    local sql=$(sqltaskupdate "$@")
+    if [ -n "$sql" ]; then
+        sqlite <<<"$sql" || die SQLITE $LINENO
+    fi
+    if [ ${#TAGS[@]} -gt 0 ]; then
+        { sqltagdelete task_id "$@"; sqltagadd "$@" -- "${TAGS[@]}"; } | sqlite || die SQLITE $LINENO
+    fi
+}
+
+cmd_dbfile() {
+    echo "$DBFILE"
+}
+
+cmd_tag() {
+    if [ -n "$1" ]; then
+        iscommand "cmd_tag_" "$1" || die NOTCMD "$1"
+        SUBCOMMAND="$1"
+        shift
+    else
+        SUBCOMMAND="list"
+    fi
+
+    inlist "$SUBCOMMAND" "list" "delete" || checktaskids "$@"
+    "cmd_tag_$SUBCOMMAND" "$@"
+}
+
+cmd_tag_list() {
+    layout "layout_tag_" "$LAYOUT" | sqlite -header -column || die SQLITE $LINENO
+}
+
+cmd_tag_add() {
+    sqltagadd "$@" -- "${TAGS[@]}" | sqlite || die SQLITE $LINENO
+}
+
+cmd_tag_update() {
+    { sqltagdelete task_id "$@"; sqltagadd "$@" -- "${TAGS[@]}"; } | sqlite || die SQLITE $LINENO
+}
+
+cmd_tag_delete() {
+    if [ $# -eq 0 ]; then # No tasks on command line - delete given tags
+        $DELETEALL || die NOALL
+        [ ${#TAGS[@]} -gt 0 ] || die NOTAGS
+        sqltagdelete tag "${TAGS[@]}" | sqlite || die SQLITE $LINENO
+    elif [ ${#TAGS[@]} -eq 0 ]; then # No tags on command line -- delete all tags for given tasks
+        $DELETEALL || die NOALL
+        checktaskids "$@"
+        sqltagdelete task_id "$@"
+    else # Tasks and tags present on command line - delete in pairs
+        checktaskids "$@"
+        sqltagdeletepairs "$@" -- "${TAGS[@]}" | sqlite || die SQLITE $LINENO
+    fi
+}
+
+# For testing
+cmd_test() {
+    true
+}
+
+showhelp() {
+    cat <<"EOF"
+tasks - simple task/todo manager using SQLite
+
+Usage
+    tasks [COMMAND] [OPTION...] [ARG...]
+
+Description
+    This is a simple task/todo manager based on SQLite. Tasks have a
+    description, priority, due date and tags. Tasks are identified in
+    commands by their identifier. Customizable layouts are used to list
+    tasks and tags.
+
+Commands
+    init            Initialize database
+    add DESC...     Add new task with given description
+    list            List tasks
+    update ID...    Update tasks
+    delete ID...    Delete tasks
+    done ID...      Mark tasks as done
+    not-done ID...  Mark tasks as not-done
+    tag [ID...]     Tag maintenance (add, list, update, delete)
+
+Options
+    -h, --help
+    -D, --description
+    -l, --layout LAYOUT
+    -p, --priority PRIORITY
+    -d, --due-date DATE
+    -c, --created-at TIMESTAMP
+    -t, --tags TAGS
+    -w, --where WHERE
+    -o, --order-by ORDERBY
+    -n, --limit N
+    -a, --all
+    -H, --header on|off
+    -M, --mode MODE
+
+Examples
+    alias t=tasks
+
+    # Initialize database
+    t init
+
+    # Create tasks
+    t add Reply to emails
+    t add -p 1 "Schedule meeting"
+    t add -p 2 -d "2024-11-22" -t "important sales" Create report
+
+    # List tasks
+    t
+    t list -l all
+
+    # Mark tasks done or not-done
+    t done 1 2
+    t not-done 2
+
+    # Update tasks
+    t update -d "next monday" 3
+
+    # Delete tasks
+    t delete 1
+
+    # Tag maintenance
+    t tag list
+    t tag list -l usage
+    t tag add -t "active project" 2 3
+    t tag delete -t project 3
+    t tag delete --all 3
+EOF
+}
+
+readconfigfile() {
+    [ -f "$CONFIGFILE" ] || return
+    source "$CONFIGFILE" || die RC "$CONFIGFILE"
+}
+
+main() {
+    setopts
+    local temp
+    temp=$(getopt -o "$SHORTOPTS" -l "$LONGOPTS" -- "$@") || die INVOPT
+    eval set -- "$temp"
+    while true; do
+        case "$1" in
+            -h|--help)
+                showhelp
+                exit;;
+            -l|--layout)
+                LAYOUT="$2"
+                shift 2;;
+            -H|--header)
+                inlist "$2" "on" "off" || die HEADER
+                HEADER="$2"
+                shift 2;;
+            -M|--mode)
+                inlist "$2" $ALLOWEDMODES || die MODE "$2"
+                MODE="$2"
+                shift 2;;
+            -p|--priority)
+                PRIORITY="$2"
+                shift 2;;
+            -d|--due-date)
+                DUEDATE=$(date --date "$2" '+%Y-%m-%d' 2>/dev/null)
+                [ $? -eq 0 ] || die DATE "$2"
+                shift 2;;
+            -C|--created-at)
+                CREATEDAT=$(date --date "$2" '+%Y-%m-%d %H:%M:%S' 2>/dev/null)
+                [ $? -eq 0 ] || die TIMESTAMP "$2"
+                shift 2;;
+            -t|--tags)
+                read -r -a TAGS <<<"$2"
+                shift 2;;
+            -D|--description)
+                DESCRIPTION="$2"
+                shift 2;;
+            -W|--where)
+                WHERE="$2"
+                shift 2;;
+            -O|--order-by)
+                ORDERBY="$2"
+                shift 2;;
+            -L|--limit)
+                ispsint "$2" || die LIMIT "$2"
+                LIMIT="$2"
+                shift 2;;
+            -a|--all)
+                DELETEALL=true
+                shift;;
+            --)
+                shift
+                break;;
+            -*)
+                die UNPROCOPT "$1"
+                shift;;
+        esac
+    done
+
+    if [ -n "$1" ]; then
+        iscommand "cmd_" "$1" || die NOTCMD "$1"
+        COMMAND="$1"
+        shift
+    else
+        COMMAND="list"
+    fi
+
+    [ "$COMMAND" = "init" -o -f "$DBFILE" ] || die NODBFILE "$DBFILE"
+    inlist "$COMMAND" "init" "list" "add" "tag" "dbfile" || checktaskids "$@"
+
+    readconfigfile
+
+    "cmd_$COMMAND" "$@"
+}
+
+# --- Program start ----------------------------------------------------
+
+main "$@"
+
