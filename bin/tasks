@@ -775,7 +775,7 @@ Commands
 
 Options
     -h, --help
-    -D, --description
+    -D, --description DESCRIPTION
     -p, --priority PRIORITY
     -d, --due-date DATE
     -C, --created-at TIMESTAMP
