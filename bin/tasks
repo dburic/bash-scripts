@@ -1,4 +1,4 @@
-#/bin/bash
+#!/bin/bash
 
 LIBDIR=$(cd "${BASH_SOURCE[0]%/*}/../lib/bash-scripts" 2>/dev/null && pwd); LIBDIR=${LIBDIR:-.}
 source "$LIBDIR/common.sh"
