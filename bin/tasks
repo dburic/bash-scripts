@@ -333,8 +333,15 @@ sqldeletebycolvals() {
     local tab="$1"
     local col="$2"
     shift 2
+    declare -a vals
+    local val typ
+    typ=$(coltype "$tab" "$col")
+    for val; do 
+        val=$(sqlval "$typ" "$val")
+        vals+=("$val")
+    done
     local cond
-    printf -v cond '%s in (%s)' "$col" "$(joinargs ", " "$@")"
+    printf -v cond '%s in (%s)' "$col" "$(joinargs ", " "${vals[@]}")"
     sqldelete "$tab" "$cond"
 }
 
