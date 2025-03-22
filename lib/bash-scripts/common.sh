@@ -7,6 +7,9 @@ STATEDIR="${XDG_STATE_HOME:-$HOME/.local/state}/$PACKAGE"
 PROGNAME=$(basename -- "$0")
 REALPATH=$(realpath -- "$0")
 PRINTNAME=false # Should messages begin with the program's name?
+OPTIONS=""
+SHORTOPTS=""
+LONGOPTS=""
 
 # Print a message to stderr
 printmsg() {
@@ -102,6 +105,28 @@ showhelp() {
     echo "Use the source, Luke! ;)"
 }
 
+# Prepare short and long options for getopt
+setopts() {
+    local line s="" l=""
+    while read line; do
+        [ -n "$line" ] || continue # Skip empty lines
+        set -- $line # Separate line into words
+        while [ -n "$1" ]; do
+            case "$1" in
+                # Long and short option with value
+                */*:)   s+="${1%/*}:"; [ -n "$l" ] && l+=","; l+="${1#*/}";;
+                # Long and short option without value
+                */*)    s+="${1%/*}";  [ -n "$l" ] && l+=","; l+="${1#*/}";;
+                # Only short option with or without value
+                *)      s+="$1";;
+            esac
+            shift
+        done
+    done <<<"$OPTIONS"
+    SHORTOPTS="$s"
+    LONGOPTS="$l"
+}
+
 # Is variable $1 set?
 isset() {
     declare -p "$1" >/dev/null 2>&1
@@ -164,6 +189,17 @@ isexecutable() {
     fi
 }
 
+# Join $2, $3, ... using separator $1
+joinargs() {
+    local sep="$1" res="" val
+    shift
+    for val; do
+        [ -z "$res" ] && res="$val" || res+="$sep$val"
+    done
+    echo "$res"
+}
+
+
 # Join $1, $2, ... with / and remove extra /'s; empty arguments are ignored
 joinpaths() {
     local p r=""
@@ -187,4 +223,5 @@ fileext() {
 mkdirordie() {
     mkdir -p "$1" || die MKDIR "$1"
 }
+
 
