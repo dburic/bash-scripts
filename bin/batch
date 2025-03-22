@@ -85,12 +85,25 @@ checkexist() {
     done
 }
 
+addtobatch() {
+    local newfiles=()
+    local f
+    while read f; do
+        if ! grep -Fxq "$f" "$SAVETOFILE"; then
+            newfiles+=("$f")
+        fi
+    done < <(realpath "${FILES[@]}")
+    if [ ${#newfiles[@]} -gt 0 ]; then
+        printf '%s\n' "${newfiles[@]}" >> "$SAVETOFILE" || die "cannot add files to $SAVETOFILE"
+    fi
+}
+
 cmd_add() {
     filesfromargs "$@"
     [ -t 0 ] || filesfromlist "-"
     checkexist
     $CLEAR && cmd_clear
-    realpath "${FILES[@]}" >> "$SAVETOFILE" || die "cannot add files to $SAVETOFILE"
+    addtobatch
 }
 
 cmd_clear() {
