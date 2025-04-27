@@ -72,7 +72,7 @@ filesfromargs() {
 
 filesfromlist() {
     local list="$1" f
-    while read -r f || [ -n "$f" ]; do
+    while IFS= read -r f || [ -n "$f" ]; do
         [ -z "$f" ] && continue
         FILES+=("$f")
     done < <(cat "$list")
