@@ -9,7 +9,11 @@ CONFIGFILE="$CONFIGDIR/tasks.conf"
 SQLITE="sqlite3" # Path to SQLite executable
 DBFILE="$DATADIR/tasks.db" # SQLite database
 DESCRIPTION="" # Task description
-PRIORITY="" # Task priority
+URGENCY="" # Task urgency
+IMPACT="" # Task impact
+DEFAULTURGENCY="" # Default task urgency
+DEFAULTIMPACT="" # Default task impact
+PRIORITY="0.5 * urgency + 0.5 * impact" # Task priority - computed from urgency and impact
 DUEDATE="" # Task due date
 CREATEDAT="" # Task creation date
 LAYOUT="default" # Layout to use when listing tasks
@@ -29,7 +33,7 @@ NOTETEXT="" # Note text
 # User-friendly option specification for command line parsing
 OPTIONS="
 h/help
-D/description: p/priority: d/due-date: C/created-at: t/tag:
+D/description: u/urgency: i/impact: d/due-date: C/created-at: t/tag:
 l/layout: W/where: O/order-by: L/limit:
 H/header: M/mode:
 a/all
@@ -42,7 +46,9 @@ declare -A COLUMNS
 COLUMNS["task"]="
 id integer
 description text
-priority text
+urgency real
+impact real
+priority real
 due_date date
 done integer
 done_at timestamp
@@ -63,6 +69,7 @@ adderrormsgs \
     DATE 'invalid date %s' \
     FUNCARGS 'invalid function arguments in line %d' \
     HEADER 'header can be only on or off' \
+    INVDEFVAL 'invalid default value %s' \
     LAYOUTARG 'invalid layout argument %s' \
     LAYOUT '%s is not a layout' \
     LIMIT 'invalid limit %s' \
@@ -101,7 +108,7 @@ sqlescape() {
 # Quote value value $2 of type $1
 sqlquote() {
     case "$1" in
-        integer) echo "$2";;
+        integer|real) echo "$2";;
         *) echo "'$2'";;
     esac
 }
@@ -120,7 +127,9 @@ sqlcreatedb() {
 create table task (
     id integer primary key autoincrement,
     description text not null,
-    priority text,
+    urgency real,
+    impact real,
+    priority real,
     due_date date,
     done integer check (done in (0, 1)) default 0,
     done_at timestamp,
@@ -320,8 +329,10 @@ sqllastrowid() {
 sqltaskadd() {
     declare -a args
     args=(description "$1")
-    [ -n "$PRIORITY" ] && args+=("priority" "$PRIORITY")
+    [ -n "$URGENCY" ] && args+=("urgency" "$URGENCY")
+    [ -n "$IMPACT" ] && args+=("impact" "$IMPACT")
     [ -n "$DUEDATE" ] && args+=("due_date" "$DUEDATE")
+    [ -n "$CREATEDAT" ] && args+=("created_at" "$CREATEDAT")
     sqlinsert task "${args[@]}"
 }
 
@@ -346,10 +357,18 @@ sqltaskupdate() {
     declare -a args
     printf -v cond 'id in (%s)' "$(joinargs ", " "$@")"
     [ -n "$DESCRIPTION" ] && args+=("description" "$DESCRIPTION")
-    [ -n "$PRIORITY" ] && args+=("priority" "$PRIORITY")
+    [ -n "$URGENCY" ] && args+=("urgency" "$URGENCY")
+    [ -n "$IMPACT" ] && args+=("impact" "$IMPACT")
     [ -n "$DUEDATE" ] && args+=("due_date" "$DUEDATE")
+    [ -n "$CREATEDAT" ] && args+=("created_at" "$CREATEDAT")
     [ ${#args[@]} -eq 0 ] && return
     sqlupdate task "$cond" "${args[@]}"
+}
+
+sqltaskupdatepriority() {
+    local cond
+    printf -v cond 'id in (%s)' "$(joinargs ", " "$@")"
+    sqlupdate task "$cond" "priority" "$PRIORITY"
 }
 
 # In:   id_1 ... id_m -- tag_1 ... tag_n
@@ -485,7 +504,7 @@ layout() {
 
 layout_default() {
     case "$1" in
-        columns)    echo "id, description, priority, due_date, created_at, iif(has_notes = 0, ' ', '*') notes, group_concat(tag, ' ') tags";;
+        columns)    echo "id, description, urgency urg, impact imp, priority pri, due_date, created_at, iif(has_notes = 0, ' ', '*') notes, group_concat(tag, ' ') tags";;
         from)       echo "task left join tag on id = task_id";;
         where)      echo "${WHERE:-done = 0}";;
         groupby)    echo "id";;
@@ -497,7 +516,7 @@ layout_default() {
 
 layout_all() {
     case "$1" in
-        columns)    echo "id, description, priority, due_date, iif(done = 0, ' ', '*') done, done_at, created_at, iif(has_notes = 0, ' ', '*') notes, group_concat(tag, ' ') tags";;
+        columns)    echo "id, description, urgency urg, impact imp, priority pri, due_date, iif(done = 0, ' ', '*') done, done_at, created_at, iif(has_notes = 0, ' ', '*') notes, group_concat(tag, ' ') tags";;
         where)      echo "${WHERE:-1}";;
         *)          layout_default "$1";;
     esac
@@ -592,8 +611,15 @@ cmd_add() {
         [ -n "$description" ] || die TASKDESC
     fi
 
+    [ -z "$URGENCY" ] && URGENCY="$DEFAULTURGENCY"
+    [ -z "$IMPACT" ] && IMPACT="$DEFAULTIMPACT"
+
     id=$( { sqltaskadd "$description"; sqllastrowid; } | sqlite)
     [ $? -ne 0 ] && die SQLITE $LINENO
+
+    if [ -n "$URGENCY" -o -n "$IMPACT" ]; then
+        sqltaskupdatepriority $id | sqlite || die SQLITE $LINENO
+    fi
 
     if [ ${#TAGS[@]} -gt 0 ]; then
         sqltagadd $id -- "${TAGS[@]}" | sqlite || die SQLITE $LINENO
@@ -616,6 +642,9 @@ cmd_update() {
     local sql=$(sqltaskupdate "$@")
     if [ -n "$sql" ]; then
         sqlite <<<"$sql" || die SQLITE $LINENO
+    fi
+    if [ -n "$URGENCY" -o -n "$IMPACT" ]; then
+        sqltaskupdatepriority "$@" | sqlite || die SQLITE $LINENO
     fi
     if [ ${#TAGS[@]} -gt 0 ]; then
         { sqltagdelete task_id "$@"; sqltagadd "$@" -- "${TAGS[@]}"; } | sqlite || die SQLITE $LINENO
@@ -749,7 +778,8 @@ Commands
 Options
     -h, --help
     -D, --description DESCRIPTION
-    -p, --priority PRIORITY
+    -u, --urgency URGENCY
+    -i, --impact IMPACT
     -d, --due-date DATE
     -C, --created-at TIMESTAMP
     -t, --tag TAGS
@@ -771,8 +801,8 @@ Examples
 
     # Create tasks
     t add Reply to emails
-    t add -p 1 "Schedule meeting"
-    t add -p 2 -d "2024-11-22" -t "important sales" Create report
+    t add -u 2 -i 1 "Schedule meeting"
+    t add -d "2024-11-22" -t "important sales" Create report
 
     # List tasks
     t
@@ -820,6 +850,12 @@ addnoteids() {
 readconfigfile() {
     [ -f "$CONFIGFILE" ] || return
     source "$CONFIGFILE" || die RC "$CONFIGFILE"
+    if [ -n "$DEFAULTURGENCY" ]; then
+        isfloat "$DEFAULTURGENCY" || die INVDEFVAL "$DEFAULTURGENCY"
+    fi
+    if [ -n "$DEFAULTIMPACT" ]; then
+        isfloat "$DEFAULTIMPACT" || die INVDEFVAL "$DEFAULTIMPACT"
+    fi
 }
 
 main() {
@@ -843,8 +879,13 @@ main() {
                 inlist "$2" $ALLOWEDMODES || die MODE "$2"
                 MODE="$2"
                 shift 2;;
-            -p|--priority)
-                PRIORITY="$2"
+            -u|--urgency)
+                isfloat "$2" || die INVVAL "$2"
+                URGENCY="$2"
+                shift 2;;
+            -i|--impact)
+                isfloat "$2" || die INVVAL "$2"
+                IMPACT="$2"
                 shift 2;;
             -d|--due-date)
                 DUEDATE=$(date --date "$2" '+%Y-%m-%d' 2>/dev/null)
