@@ -23,7 +23,7 @@ declare -a TAGS # Tags
 LIMIT="" # For layouts
 WHERE="" # Where expression for layouts
 ORDERBY="" # Order-by expression for layouts
-DELETEALL=false # Delete all tags or notes
+CONFDEL=false # Delete operation confirmed with --confirm-delete
 HEADER="on" # Turn header on or off
 MODE="column" # SQLite output mode
 ALLOWEDMODES="ascii box csv column html insert json line list markdown qbox quote table tabs tcl"
@@ -36,7 +36,7 @@ h/help
 D/description: u/urgency: i/impact: d/due-date: C/created-at: t/tag:
 l/layout: W/where: O/order-by: L/limit:
 H/header: M/mode:
-a/all
+/confirm-delete
 n/note-id: N/note-text:
 "
 
@@ -74,7 +74,7 @@ adderrormsgs \
     LAYOUT '%s is not a layout' \
     LIMIT 'invalid limit %s' \
     MODE 'invalid mode %s' \
-    NOALL 'use --all to delete all %s' \
+    CONFDEL 'use --confirm-delete to delete all %s' \
     NODBFILE 'database file not found %s' \
     NOTAGS 'missing tags' \
     NOTETEXT 'missing note text' \
@@ -125,7 +125,7 @@ sqlval() {
 sqlcreatedb() {
     cat <<"EOF"
 create table task (
-    id integer primary key autoincrement,
+    id integer not null,
     description text not null,
     urgency real,
     impact real,
@@ -137,20 +137,24 @@ create table task (
     has_notes integer check (has_notes in (0, 1)) default 0
 );
 
+create unique index idx_task_id on task (id);
+
 create table tag (
     task_id integer,
-    tag text not null,
-    primary key (task_id, tag),
-    foreign key (task_id) references task(id) on delete cascade
+    tag text not null
 );
 
+create unique index idx_tag_taskid_tag on tag (task_id, tag);
+
 create table note (
-    id integer primary key autoincrement,
+    id integer not null,
     task_id integer not null,
     created_at timestamp default current_timestamp,
-    note text not null,
-    foreign key (task_id) references task(id) on delete cascade
+    note text not null
 );
+
+create unique index idx_note_id on note (id);
+create index idx_note_taskid on note (task_id);
 
 create trigger update_done_at
 after update on task
@@ -161,7 +165,7 @@ begin
             when new.done = 0 then null
             else current_timestamp
         end
-    where id = new.id;
+    where rowid = new.rowid;
 end;
 
 create trigger update_has_notes_on_insert
@@ -183,6 +187,11 @@ begin
     where id = old.task_id;
 end;
 
+create table task_id_map (old_id integer, new_id integer);
+create index idx_taskidmap_oldid on task_id_map (old_id);
+
+create table note_id_map (old_id integer, new_id integer);
+create index idx_noteidmap_oldid on note_id_map (old_id);
 EOF
 }
 
@@ -324,16 +333,32 @@ sqllastrowid() {
     printf 'select last_insert_rowid();\n'
 }
 
-# In:   $1
-# Out:  insert into task (description[, priority][, due_date]) values ($1[, $PRIORITY][, $DUEDATE]);
+sqlbegintransaction() {
+    printf 'begin immediate transaction;\n'
+}
+
+sqlcommit() {
+    printf 'commit;\n'
+}
+
+sqllastid() {
+    printf 'select max(id) last_id from %s;\n' "$1"
+}
+
+# In:   Task description
+# Out:  SQL statement to insert new task
 sqltaskadd() {
     declare -a args
-    args=(description "$1")
+    args=(id "(select ifnull(max(id), 0) from task) + 1")
+    args+=(description "$1")
     [ -n "$URGENCY" ] && args+=("urgency" "$URGENCY")
     [ -n "$IMPACT" ] && args+=("impact" "$IMPACT")
     [ -n "$DUEDATE" ] && args+=("due_date" "$DUEDATE")
     [ -n "$CREATEDAT" ] && args+=("created_at" "$CREATEDAT")
+    sqlbegintransaction
     sqlinsert task "${args[@]}"
+    sqllastid task
+    sqlcommit
 }
 
 # In:   val id_1 ... id_n
@@ -349,7 +374,11 @@ sqltaskdone() {
 # In:   id_1 ... id_n
 # Out:  delete from task where id in (id_1, ..., id_n);
 sqltaskdelete() {
+    sqlbegintransaction
+    sqldeletebycolvals note task_id "$@"
+    sqldeletebycolvals tag task_id "$@"
     sqldeletebycolvals task id "$@"
+    sqlcommit
 }
 
 sqltaskupdate() {
@@ -437,18 +466,21 @@ sqltagdeletepairs() {
 }
 
 # In:   notetext id_1 ... id_n
-# Out:  insert into note (task_id, note) value (id_1, notetext), ..., (id_n, notetext);
+# Out:  SQL statement to insert the same note for multiple tasks
 sqlnoteadd() {
     [ $# -ge 2 ] || die FUNCARGS $LINENO
     local notetext="$1"
     shift
     local id
+    local c=0 # Counter
     declare -a values
     for id; do
+        c=$[ c + 1 ]
+        values+=("(select ifnull(max(id), 0) from note) + $c")
         values+=("$id")
         values+=("$notetext")
     done
-    sqlinsertmulti note task_id note -- "${values[@]}"
+    sqlinsertmulti note id task_id note -- "${values[@]}"
 }
 
 # In:   col val_1 ... val_n
@@ -465,6 +497,33 @@ sqlnoteupdate() {
     local cond
     printf -v cond 'id in (%s)' "$(joinargs ", " "$@")"
     sqlupdate note "$cond" note "$notetext"
+}
+
+# Delete all done tasks and related tags and notes
+sqldeletedone() {
+    sqlbegintransaction
+    cat <<"EOF"
+delete from note where task_id in (select id from task where done = 1);
+delete from tag where task_id in (select id from task where done = 1);
+delete from task where done = 1;
+EOF
+    sqlcommit
+}
+
+# Compact task and note IDs by renumbering them
+sqlcompact() {
+    sqlbegintransaction
+    cat <<"EOF"
+delete from task_id_map;
+insert into task_id_map select id, row_number() over (order by id) from task;
+update task set id = (select new_id from task_id_map where old_id = id);
+update tag set task_id = (select new_id from task_id_map where old_id = task_id);
+update note set task_id = (select new_id from task_id_map where old_id = task_id);
+delete from note_id_map;
+insert into note_id_map select id, row_number() over (order by id) from note;
+update note set id = (select new_id from note_id_map where old_id = id);
+EOF
+    sqlcommit
 }
 
 # --- Layouts ----------------------------------------------------------
@@ -499,7 +558,6 @@ layout() {
         "$groupby" \
         "$($lf orderby)" \
         "$limit"
-
 }
 
 layout_default() {
@@ -553,7 +611,6 @@ layout_note_default() {
     esac
 }
 
-
 # --- All other functions ----------------------------------------------
 
 iscommand() {
@@ -561,7 +618,7 @@ iscommand() {
 }
 
 sqlite() {
-    $SQLITE "$DBFILE" -cmd 'pragma foreign_keys = on' "$@"
+    $SQLITE "$DBFILE" "$@"
 }
 
 sqlitelist() {
@@ -614,7 +671,7 @@ cmd_add() {
     [ -z "$URGENCY" ] && URGENCY="$DEFAULTURGENCY"
     [ -z "$IMPACT" ] && IMPACT="$DEFAULTIMPACT"
 
-    id=$( { sqltaskadd "$description"; sqllastrowid; } | sqlite)
+    id=$(sqltaskadd "$description" | sqlite)
     [ $? -ne 0 ] && die SQLITE $LINENO
 
     if [ -n "$URGENCY" -o -n "$IMPACT" ]; then
@@ -655,6 +712,15 @@ cmd_delete() {
     sqltaskdelete "$@" | sqlite || die SQLITE $LINENO
 }
 
+cmd_delete-done() {
+    $CONFDEL || die CONFDEL 'done tasks'
+    sqldeletedone | sqlite || die SQLITE $LINENO
+}
+
+cmd_compact() {
+    sqlcompact | sqlite || die SQLITE $LINENO
+}
+
 cmd_dbfile() {
     echo "$DBFILE"
 }
@@ -686,11 +752,11 @@ cmd_tag_update() {
 
 cmd_tag_delete() {
     if [ $# -eq 0 ]; then # No tasks on command line - delete given tags
-        $DELETEALL || die NOALL tags
+        $CONFDEL || die CONFDEL tags
         [ ${#TAGS[@]} -gt 0 ] || die NOTAGS
         sqltagdelete tag "${TAGS[@]}" | sqlite || die SQLITE $LINENO
     elif [ ${#TAGS[@]} -eq 0 ]; then # No tags on command line -- delete all tags for given tasks
-        $DELETEALL || die NOALL tags
+        $CONFDEL || die CONFDEL tags
         checktaskids "$@"
         sqltagdelete task_id "$@" | sqlite || die SQLITE $LINENO
     else # Tasks and tags present on command line - delete in pairs
@@ -738,7 +804,7 @@ cmd_note_delete() {
         checknoteids "${NOTEIDS[@]}"
         sqlnotedelete id "${NOTEIDS[@]}" | sqlite || die SQLITE $LINENO
     elif [ $# -gt 0 ]; then
-        $DELETEALL || die NOALL notes
+        $CONFDEL || die CONFDEL notes
         checktaskids "$@"
         sqlnotedelete task_id "$@" | sqlite || die SQLITE $LINENO
     else
@@ -760,7 +826,8 @@ Usage
 
 Description
     This is a simple task/todo manager based on SQLite. Tasks have a
-    description, priority and a due date. Tags and notes are also
+    description, urgency, impact, computed priority (as a user definable
+    function of urgency and impact) and a due date. Tags and notes are also
     supported. Tasks are identified in commands by their identifier.
     Customizable layouts are used to list tasks, tags and notes.
 
@@ -772,6 +839,8 @@ Commands
     delete ID...    Delete tasks
     done ID...      Mark tasks as done
     not-done ID...  Mark tasks as not-done
+    delete-done     Delete done tasks
+    compact         Compact IDs
     tag add|list|update|delete [ID...]      Tags maintenance
     note add|list|update|delete [ID...]     Notes maintenance
 
@@ -789,7 +858,7 @@ Options
     -L, --limit N
     -H, --header on|off
     -M, --mode MODE
-    -a, --all
+        --confirm-delete
     -n, --note-id IDS
     -N, --notex-text NOTETEXT
 
@@ -917,8 +986,8 @@ main() {
             -N|--note-text)
                 NOTETEXT="$2"
                 shift 2;;
-            -a|--all)
-                DELETEALL=true
+            --confirm-delete)
+                CONFDEL=true
                 shift;;
             --)
                 shift
@@ -938,7 +1007,7 @@ main() {
     fi
 
     [ "$COMMAND" = "init" -o -f "$DBFILE" ] || die NODBFILE "$DBFILE"
-    inlist "$COMMAND" "init" "list" "add" "tag" "note" "dbfile" "test" || checktaskids "$@"
+    inlist "$COMMAND" "init" "list" "add" "tag" "note" "dbfile" "test" "delete-done" "compact" || checktaskids "$@"
 
     readconfigfile
 
